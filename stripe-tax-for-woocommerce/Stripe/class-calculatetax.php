@@ -281,7 +281,7 @@ class CalculateTax {
 			return false;
 		}
 
-		if ( 'CA' === $customer_details['address']['country'] && ( empty( $customer_details['address']['state'] ) && empty( $customer_details['address']['postal_code'] ) ) ) {
+		if ( 'CA' === $customer_details['address']['country'] && ( empty( $customer_details['address']['state'] ) || empty( $customer_details['address']['postal_code'] ) ) ) {
 			return false;
 		}
 

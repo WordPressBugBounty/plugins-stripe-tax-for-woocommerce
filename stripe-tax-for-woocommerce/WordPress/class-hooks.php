@@ -13,6 +13,7 @@ defined( 'ABSPATH' ) || exit;
 use Automattic\WooCommerce\Utilities\NumberUtil;
 use Exception;
 use Stripe\StripeTaxForWooCommerce\SDK\lib\Exception\ApiErrorException;
+use Stripe\StripeTaxForWooCommerce\SDK\lib\Stripe;
 use Stripe\StripeTaxForWooCommerce\Stripe\CalculateTax;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxCodeList;
@@ -936,6 +937,25 @@ class Hooks {
 	 */
 	public static function is_woocommerce_activated() {
 		return class_exists( 'WooCommerce' );
+	}
+
+	/**
+	 * Sets app info for Stripe Tax
+	 *
+	 * @return void
+	 */
+	public static function set_app_info() {
+		if ( ! Stripe::getAppInfo() ) {
+			if ( ! function_exists( 'get_plugin_data' ) ) {
+				include_once ABSPATH . 'wp-admin/includes/plugin.php';
+			}
+
+			if ( file_exists( __DIR__ . '/../stripe-tax-for-woocommerce.php' ) ) {
+				$plugin_data = get_plugin_data( __DIR__ . '/../stripe-tax-for-woocommerce.php' );
+
+				Stripe::setAppInfo( $plugin_data['Name'], $plugin_data['Version'] );
+			}
+		}
 	}
 
 	/**

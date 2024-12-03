@@ -1,5 +1,8 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
 
+2024-11-28 - version 1.1.3
+* Fixed address input validation
+
 2024-11-14 - version 1.1.2
 * Fixed fatal error when adding product to cart and no shipping address provided
 * Fixed multi-currency issues
