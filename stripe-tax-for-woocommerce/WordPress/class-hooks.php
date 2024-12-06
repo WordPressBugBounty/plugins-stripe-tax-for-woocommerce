@@ -632,7 +632,6 @@ class Hooks {
 			}
 
 			$wc_cart->cart_contents[ $item->key ]['line_tax_data']     = array( 'subtotal' => wc_remove_number_precision_deep( $item->subtotal_taxes ) );
-			$wc_cart->cart_contents[ $item->key ]['line_subtotal']     = wc_remove_number_precision( $item->subtotal );
 			$wc_cart->cart_contents[ $item->key ]['line_subtotal_tax'] = wc_remove_number_precision( $item->subtotal_tax );
 
 			return $new_total_taxes;

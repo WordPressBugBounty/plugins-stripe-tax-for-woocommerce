@@ -1,14 +1,17 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
 
+2024-12-06 - version 1.1.4
+* Fixed incorrect pricing display in the cart for subscriptions.
+
 2024-11-28 - version 1.1.3
-* Fixed address input validation
+* Fixed address input validation.
 
 2024-11-14 - version 1.1.2
-* Fixed fatal error when adding product to cart and no shipping address provided
-* Fixed multi-currency issues
+* Fixed fatal error when adding product to cart and no shipping address provided.
+* Fixed multi-currency issues.
 
 2024-10-29 - version 1.1.1
-* Fixed fatal error when adding existing registration
+* Fixed fatal error when adding existing registration.
 
 2024-10-29 - version 1.1.0
 * Fixed an error that prevented coupons to being applied.
@@ -33,21 +36,21 @@
 * Added a tooltip to provide information on tax registrations.
 
 2024-07-17 - version 1.0.6
-* Fixed coupons/subscriptions compatability
-* Update README
+* Fixed coupons/subscriptions compatability.
+* Update README.
 
 2024-07-17 - version 1.0.5
-* Fixed coupons for orders created from the dashboard
-* Remove Beta email from connector
+* Fixed coupons for orders created from the dashboard.
+* Remove Beta email from connector.
 
 2024-07-12 - version 1.0.4
-* Internationalization fixes
-* Handle duplicate tax
-* Add tested up to Wordpress version
+* Internationalization fixes.
+* Handle duplicate tax.
+* Add tested up to Wordpress version.
 
 2024-07-11 - version 1.0.3
-* Fix coupons bug
-* Fix installation bug
-* Fix rounding bug
-* Add Woo plugin header
-* Fix tax exempt status being respected when creating orders from the dashboard
+* Fix coupons bug.
+* Fix installation bug.
+* Fix rounding bug.
+* Add Woo plugin header.
+* Fix tax exempt status being respected when creating orders from the dashboard.

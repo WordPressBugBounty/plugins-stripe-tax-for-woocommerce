@@ -495,7 +495,11 @@ class CalculateTax {
 			 * @var \WC_Product $product
 			 */
 			$product = $cart_items['data'];
-			$amount  = $product->get_price() * $quantity - self::get_cart_item_discount_amount( $cart_items );
+			$amount  = $cart_items['line_subtotal'];
+
+			if ( array_key_exists( 'line_total', $cart_items ) ) {
+				$amount = $cart_items['line_total'];
+			}
 
 			if ( $amount < 0 ) {
 				continue;
