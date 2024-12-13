@@ -335,12 +335,14 @@ class Hooks {
 	}
 
 	/**
-	 * Add WordPress actions.
+	 * Add plugin actions.
 	 *
 	 * @return void
 	 */
-	protected static function add_actions() {
-		add_filter( 'woocommerce_get_settings_pages', array( static::class, 'filter_add_stripe_tax_settings' ), 10, 1 );
+	protected static function add_actions(): void {
+		static::admin_enqueue_scripts();
+		static::admin_ajax();
+		static::add_action_tax_exemptions( static::$tax_exemptions );
 		add_action(
 			'woocommerce_after_product_object_save',
 			array(
@@ -350,14 +352,152 @@ class Hooks {
 			10,
 			1
 		);
-		add_action( 'admin_init', array( static::class, 'action_admin_init' ), 5, 0 );
 		add_action( 'init', array( static::class, 'action_init' ), 10, 0 );
-		add_filter(
-			'plugin_action_links_' . STRIPE_TAX_FOR_WOOCOMMERCE_PLUGIN_BASENAME,
+		add_action(
+			'rest_dispatch_request',
 			array(
 				static::class,
-				'plugin_action_links',
-			)
+				'detect_error_reporting_collect',
+			),
+			10,
+			3
+		);
+		add_action(
+			'woocommerce_hydration_dispatch_request',
+			array(
+				static::class,
+				'detect_error_reporting_collect',
+			),
+			10,
+			3
+		);
+		add_action(
+			'woocommerce_hydration_request_after_callbacks',
+			array(
+				static::class,
+				'add_collected_errors_to_response',
+			),
+			10,
+			3
+		);
+		add_action(
+			'rest_request_after_callbacks',
+			array(
+				static::class,
+				'add_collected_errors_to_response',
+			),
+			10,
+			3
+		);
+		add_action(
+			'woocommerce_order_partially_refunded',
+			array(
+				static::class,
+				'action_woocommerce_order_partially_refunded',
+			),
+			20,
+			2
+		);
+		add_action(
+			'woocommerce_order_fully_refunded',
+			array(
+				static::class,
+				'action_woocommerce_order_fully_refunded',
+			),
+			20,
+			2
+		);
+		add_action(
+			'woocommerce_order_status_changed',
+			array(
+				static::class,
+				'action_woocommerce_order_status_changed',
+			),
+			20,
+			4
+		);
+		add_action(
+			'woocommerce_checkout_create_order_tax_item',
+			array(
+				static::class,
+				'action_woocommerce_checkout_create_order_tax_item',
+			),
+			5,
+			3
+		);
+		add_action(
+			'woocommerce_order_before_calculate_totals',
+			array(
+				static::class,
+				'action_calculate_totals',
+			),
+			100,
+			2
+		);
+
+		add_action(
+			'woocommerce_order_after_calculate_totals',
+			array(
+				static::class,
+				'action_calculate_totals',
+			),
+			100,
+			2
+		);
+
+		add_action( 'admin_notices', array( static::class, 'render_admin_notices' ) );
+	}
+
+	/**
+	 * Add plugin filters.
+	 *
+	 * @return void
+	 */
+	protected static function add_filters(): void {
+		add_filter(
+			'woocommerce_order_type_to_group',
+			array(
+				static::class,
+				'filter_woocommerce_order_type_to_group',
+			),
+			100,
+			1
+		);
+		add_filter(
+			'woocommerce_calculate_item_totals_taxes',
+			array(
+				static::class,
+				'filter_woocommerce_calculate_item_totals_taxes',
+			),
+			20,
+			2
+		);
+		add_filter( 'woocommerce_rate_code', array( static::class, 'filter_woocommerce_rate_code' ), 5, 2 );
+		add_filter( 'woocommerce_rate_label', array( static::class, 'filter_woocommerce_rate_label' ), 5, 2 );
+		add_filter( 'woocommerce_rate_compound', array( static::class, 'filter_woocommerce_rate_compound' ), 5, 2 );
+		add_filter(
+			'woocommerce_get_order_item_classname',
+			array(
+				static::class,
+				'filter_woocommerce_get_order_item_classname',
+			),
+			5,
+			3
+		);
+		add_filter(
+			'woocommerce_cart_hide_zero_taxes',
+			'__return_false',
+			20,
+			0
+		);
+		add_filter(
+			'woocommerce_after_calculate_totals',
+			array(
+				static::class,
+				'action_woocommerce_after_calculate_totals',
+			),
+			20,
+			2
 		);
 	}
 
@@ -964,9 +1104,38 @@ class Hooks {
 	 *
 	 * @return void
 	 */
-	public static function init( bool $force = false ) {
+	public static function init( bool $force = false ): void {
+		add_action( 'admin_init', array( static::class, 'action_admin_init' ), 5, 0 );
+		add_filter( 'woocommerce_get_settings_pages', array( static::class, 'filter_add_stripe_tax_settings' ), 10, 1 );
+		add_filter(
+			'plugin_action_links_' . STRIPE_TAX_FOR_WOOCOMMERCE_PLUGIN_BASENAME,
+			array(
+				static::class,
+				'plugin_action_links',
+			)
+		);
+		static::admin_enqueue_styles();
+
+		if ( static::can_init( $force ) ) {
+			static::$tax_exemptions = new TaxExemptions();
+
+			static::$hooks_initialized = true;
+
+			static::add_actions();
+			static::add_filters();
+		}
+	}
+
+	/**
+	 * Check if the plugin can perform init action.
+	 *
+	 * @param bool $force Force flag.
+	 *
+	 * @return bool
+	 */
+	private static function can_init( bool $force = false ): bool {
 		if ( ! empty( static::$hooks_initialized ) && ! $force ) {
-			return;
+			return false;
 		}
 
 		if ( ! static::is_woocommerce_activated() ) {
@@ -978,168 +1147,10 @@ class Hooks {
 				}
 			);
 
-			return;
+			return false;
 		}
 
-		static::$tax_exemptions = new TaxExemptions();
-
-		static::$hooks_initialized = true;
-		static::add_actions();
-		static::admin_enqueue_styles();
-		static::admin_enqueue_scripts();
-		static::admin_ajax();
-		static::add_action_tax_exemptions( static::$tax_exemptions );
-		add_action(
-			'rest_dispatch_request',
-			array(
-				static::class,
-				'detect_error_reporting_collect',
-			),
-			10,
-			3
-		);
-		add_action(
-			'woocommerce_hydration_dispatch_request',
-			array(
-				static::class,
-				'detect_error_reporting_collect',
-			),
-			10,
-			3
-		);
-		add_action(
-			'woocommerce_hydration_request_after_callbacks',
-			array(
-				static::class,
-				'add_collected_errors_to_response',
-			),
-			10,
-			3
-		);
-		add_action(
-			'rest_request_after_callbacks',
-			array(
-				static::class,
-				'add_collected_errors_to_response',
-			),
-			10,
-			3
-		);
-
-		add_filter(
-			'woocommerce_order_type_to_group',
-			array(
-				static::class,
-				'filter_woocommerce_order_type_to_group',
-			),
-			100,
-			1
-		);
-
-		add_filter(
-			'woocommerce_calculate_item_totals_taxes',
-			array(
-				static::class,
-				'filter_woocommerce_calculate_item_totals_taxes',
-			),
-			20,
-			2
-		);
-
-		add_action(
-			'woocommerce_order_partially_refunded',
-			array(
-				static::class,
-				'action_woocommerce_order_partially_refunded',
-			),
-			20,
-			2
-		);
-
-		add_action(
-			'woocommerce_order_fully_refunded',
-			array(
-				static::class,
-				'action_woocommerce_order_fully_refunded',
-			),
-			20,
-			2
-		);
-
-		add_action(
-			'woocommerce_order_status_changed',
-			array(
-				static::class,
-				'action_woocommerce_order_status_changed',
-			),
-			20,
-			4
-		);
-
-		add_action(
-			'woocommerce_checkout_create_order_tax_item',
-			array(
-				static::class,
-				'action_woocommerce_checkout_create_order_tax_item',
-			),
-			5,
-			3
-		);
-
-		add_filter( 'woocommerce_rate_code', array( static::class, 'filter_woocommerce_rate_code' ), 5, 2 );
-
-		add_filter( 'woocommerce_rate_label', array( static::class, 'filter_woocommerce_rate_label' ), 5, 2 );
-
-		add_filter( 'woocommerce_rate_compound', array( static::class, 'filter_woocommerce_rate_compound' ), 5, 2 );
-
-		add_filter(
-			'woocommerce_get_order_item_classname',
-			array(
-				static::class,
-				'filter_woocommerce_get_order_item_classname',
-			),
-			5,
-			3
-		);
-
-		add_filter(
-			'woocommerce_cart_hide_zero_taxes',
-			'__return_false',
-			20,
-			0
-		);
-
-		add_filter(
-			'woocommerce_after_calculate_totals',
-			array(
-				static::class,
-				'action_woocommerce_after_calculate_totals',
-			),
-			20,
-			2
-		);
-
-		add_action(
-			'woocommerce_order_before_calculate_totals',
-			array(
-				static::class,
-				'action_calculate_totals',
-			),
-			100,
-			2
-		);
-
-		add_action(
-			'woocommerce_order_after_calculate_totals',
-			array(
-				static::class,
-				'action_calculate_totals',
-			),
-			100,
-			2
-		);
-
-		add_action( 'admin_notices', array( static::class, 'render_admin_notices' ) );
+		return ! empty( Options::get_live_mode_key() );
 	}
 
 	/**

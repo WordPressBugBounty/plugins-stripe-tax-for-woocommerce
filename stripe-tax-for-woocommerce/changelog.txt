@@ -1,5 +1,8 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
 
+2024-12-13 - version 1.1.5
+* Fixed incorrect displaying error on product edit page when plugin is not enabled.
+
 2024-12-06 - version 1.1.4
 * Fixed incorrect pricing display in the cart for subscriptions.
 
