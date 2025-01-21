@@ -11,6 +11,7 @@ namespace Stripe\StripeTaxForWooCommerce\WooCommerce;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Stripe\StripeTaxForWooCommerce\Stripe\Validate;
 use Stripe\StripeTaxForWooCommerce\WordPress\Options;
+use WC_Data;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -87,16 +88,16 @@ class ExtendedProduct {
 	/**
 	 * Populate tax code from submitted form.
 	 *
-	 * @param object $wc_data WC_Data object. Usually here will be WooCommerce Product object.
+	 * @param WC_Data $wc_data WC_Data object. Usually here will be WooCommerce Product object.
 	 *
 	 * @return string
 	 * @throws \Exception In case of invalid tax code entered.
 	 */
-	public static function get_on_save_post_parameter_tax_code( $wc_data ): string {
+	public static function get_on_save_post_parameter_tax_code( WC_Data $wc_data ): string {
 		$action = isset( $_REQUEST['action'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['action'] ) ) : '';
 		$nonce  = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
 
-		$post_id = $wc_data->id;
+		$post_id = $wc_data->get_id();
 		$post    = get_post( $post_id );
 
 		if ( isset( $_POST['deletepost'] ) ) {

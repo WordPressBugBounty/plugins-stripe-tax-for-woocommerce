@@ -96,8 +96,7 @@ class Connect {
 			throw new Exception( wp_kses( $message, $allowed_html ) );
 		}
 		$response_body = json_decode( wp_remote_retrieve_body( $response ) );
-		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		if ( ! is_object( $response_body ) || ! isset( $response_body->oauthUrl ) || ! is_string( $response_body->oauthUrl ) || ( '' === $response_body->oauthUrl ) ) {
+		if ( ! is_object( $response_body ) || ! isset( $response_body->{ 'oauthUrl' } ) || ! is_string( $response_body->{ 'oauthUrl' } ) || ( '' === $response_body->{ 'oauthUrl' } ) ) {
 			$message = __( 'Invalid response from WooCommerce, while trying to receive oAuth URL', 'stripe-tax-for-woocommerce' );
 			throw new Exception( wp_kses( $message, $allowed_html ) );
 		}
@@ -109,8 +108,7 @@ class Connect {
 
 		Options::update_option( Options::OPTION_WOOCOMMERCE_CONNECT_LAST_STATE, $response_body->state );
 
-		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		return $response_body->oauthUrl;
+		return $response_body->{ 'oauthUrl' };
 	}
 
 	/**
@@ -167,14 +165,16 @@ class Connect {
 			throw new Exception( esc_html( $response->get_error_message() ) );
 		}
 		$response_body = json_decode( wp_remote_retrieve_body( $response ) );
-		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		if ( ! is_object( $response_body ) || ! isset( $response_body->secretKey ) || ! is_string( $response_body->secretKey ) || ( '' === $response_body->secretKey ) ) {
+		if ( ! is_object( $response_body ) || ! isset( $response_body->{ 'secretKey' } ) || ! is_string( $response_body->{ 'secretKey' } ) || ( '' === $response_body->{ 'secretKey' } ) ) {
 			// phpcs:ignore
 			throw new Exception( esc_html__( 'Invalid response from WooCommerce, while trying to receive oAuth URL', 'stripe-tax-for-woocommerce' ) . ': ' . print_r( $response_body, true ) );
 		}
 
-		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		return $response_body->secretKey;
+		if ( ! empty( $response_body->{ 'accountId' } ) ) {
+			Options::update_option( Options::OPTION_LIVE_MODE_ACCOUNT_ID, $response_body->{ 'accountId' } );
+		}
+
+		return $response_body->{ 'secretKey' };
 	}
 
 	/**

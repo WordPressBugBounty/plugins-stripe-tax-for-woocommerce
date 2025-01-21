@@ -13,7 +13,9 @@ defined( 'ABSPATH' ) || exit;
 use Automattic\WooCommerce\Utilities\NumberUtil;
 use Exception;
 use Stripe\StripeTaxForWooCommerce\SDK\lib\Exception\ApiErrorException;
+use Stripe\StripeTaxForWooCommerce\SDK\lib\Service\AccountService;
 use Stripe\StripeTaxForWooCommerce\SDK\lib\Stripe;
+use Stripe\StripeTaxForWooCommerce\SDK\lib\StripeClient;
 use Stripe\StripeTaxForWooCommerce\Stripe\CalculateTax;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxCodeList;
@@ -26,6 +28,7 @@ use Stripe\StripeTaxForWooCommerce\WooCommerce\ErrorRenderer;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\ExtendedProduct;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeOrderItemTax;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTax;
+use WC_Data;
 
 /**
  * Class for adding WordPress actions, filter, registering styles and scripts
@@ -218,10 +221,12 @@ class Hooks {
 	/**
 	 * Saves additional fields for WooCommerce Product on save action.
 	 *
-	 * @param object $wc_data WooCommerce data.
+	 * @param WC_Data $wc_data WooCommerce data.
+	 *
+	 * @throws Exception If something goes wrong.
 	 */
-	public static function action_woocommerce_after_product_object_save( $wc_data ) {
-		$stripe_wc_product = new ExtendedProduct( $wc_data->id );
+	public static function action_woocommerce_after_product_object_save( WC_Data $wc_data ) {
+		$stripe_wc_product = new ExtendedProduct( $wc_data->get_id() );
 
 		$posted_tax_code = ExtendedProduct::get_on_save_post_parameter_tax_code( $wc_data );
 
@@ -463,15 +468,6 @@ class Hooks {
 			100,
 			1
 		);
-		add_filter(
-			'woocommerce_calculate_item_totals_taxes',
-			array(
-				static::class,
-				'filter_woocommerce_calculate_item_totals_taxes',
-			),
-			20,
-			2
-		);
 		add_filter( 'woocommerce_rate_code', array( static::class, 'filter_woocommerce_rate_code' ), 5, 2 );
 		add_filter( 'woocommerce_rate_label', array( static::class, 'filter_woocommerce_rate_label' ), 5, 2 );
 		add_filter( 'woocommerce_rate_compound', array( static::class, 'filter_woocommerce_rate_compound' ), 5, 2 );
@@ -499,6 +495,10 @@ class Hooks {
 			20,
 			2
 		);
+
+		// Using this to ignore Woocommerce rates to be displayed in shop.
+		add_filter( 'woocommerce_find_rates', fn () => array() );
+		add_filter( 'pre_option_wc_connect_taxes_enabled', fn () => Options::is_live_mode_enabled() );
 	}
 
 	/**
@@ -688,103 +688,6 @@ class Hooks {
 		static::$type_to_group = $type_to_group;
 
 		return $type_to_group;
-	}
-
-	/**
-	 * Filters the tax rates for an item in the WooCommerce cart totals.
-	 *
-	 * @param mixed $total_taxes Item tax rates.
-	 * @param mixed $item The item.
-	 */
-	public static function filter_woocommerce_calculate_item_totals_taxes( $total_taxes, $item ) {
-		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() ) {
-			return $total_taxes;
-		}
-
-		try {
-			$wc_cart = WC()->cart;
-
-			$currency = strtolower( get_woocommerce_currency() );
-
-			$customer = $wc_cart->get_customer();
-
-			$line_items = CalculateTax::get_line_items_by_cart( $wc_cart );
-
-			$customer_details                        = CalculateTax::get_customer_details_by_order( $customer );
-			$customer_details['taxability_override'] = static::$tax_exemptions->get_tax_exeption( get_current_user_id() );
-
-			if ( ! CalculateTax::can_calculate_tax( $customer_details ) ) {
-				return $total_taxes;
-			}
-
-			$shipping_cost = CalculateTax::get_taxable_shipping_cost_from_cart_or_order_for_api( $wc_cart, $currency );
-
-			$calculate_tax = new CalculateTax(
-				Options::get_live_mode_key(),
-				$currency,
-				$line_items,
-				$customer_details,
-				$shipping_cost
-			);
-
-			$response = $calculate_tax->get_response();
-
-			$new_item_tax_rates = array();
-			$new_total_taxes    = array();
-
-			foreach ( $response->line_items->data as $datum ) {
-				$product      = $item->object['data'];
-				$product_name = $product->get_name();
-				if ( $datum->reference === $product_name ) {
-					foreach ( $datum->tax_breakdown as $tax_breakdown ) {
-						if ( ! isset( $tax_breakdown->tax_rate_details ) && ! is_object( $tax_breakdown->tax_rate_details ) ) {
-							continue;
-						}
-
-						$rate_name       = $tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name;
-						$rate_percentage = $tax_breakdown->tax_rate_details->percentage_decimal;
-						$tax_type        = $tax_breakdown->tax_rate_details->tax_type;
-						$rate_key        = 'stripe_tax_for_woocommerce__' . $tax_type . '__' . $rate_percentage . '__' . $rate_name;
-
-						if ( ! array_key_exists( $rate_key, $new_item_tax_rates ) ) {
-							$new_item_tax_rates[ $rate_key ] = array(
-								'rate'     => (float) $rate_percentage,
-								'label'    => $rate_name,
-								'shipping' => 'no',
-								'compound' => 'no',
-							);
-							$new_total_taxes[ $rate_key ]    = $tax_breakdown->amount;
-						} else {
-							$new_item_tax_rates[ $rate_key ]['rate'] += (float) $rate_percentage;
-							$new_total_taxes[ $rate_key ]            += $tax_breakdown->amount;
-						}
-					}
-				}
-			}
-
-			$item->tax_rates      = $new_item_tax_rates;
-			$item->subtotal_taxes = $new_total_taxes;
-			$item->subtotal_tax   = array_sum( $item->subtotal_taxes );
-
-			if ( $item->price_includes_tax ) {
-				// Use unrounded taxes so we can re-calculate from the orders screen accurately later.
-				$item->subtotal = $item->subtotal - $item->subtotal_tax;
-			}
-
-			$wc_cart->cart_contents[ $item->key ]['line_tax_data']     = array( 'subtotal' => wc_remove_number_precision_deep( $item->subtotal_taxes ) );
-			$wc_cart->cart_contents[ $item->key ]['line_subtotal_tax'] = wc_remove_number_precision( $item->subtotal_tax );
-
-			return $new_total_taxes;
-		} catch ( ApiErrorException $e ) {
-			if ( is_ajax() ) {
-				ErrorRenderer::add_stripe_wc_notice( $e->getMessage(), 'error' );
-			}
-
-			return $total_taxes;
-		} catch ( Exception $e ) {
-			static::handle_calculate_tax_error( $e );
-			return $total_taxes;
-		}
 	}
 
 	/**
@@ -1106,6 +1009,8 @@ class Hooks {
 	 */
 	public static function init( bool $force = false ): void {
 		add_action( 'admin_init', array( static::class, 'action_admin_init' ), 5, 0 );
+		add_action( 'woocommerce_system_status_report', array( static::class, 'system_status_report' ) );
+
 		add_filter( 'woocommerce_get_settings_pages', array( static::class, 'filter_add_stripe_tax_settings' ), 10, 1 );
 		add_filter(
 			'plugin_action_links_' . STRIPE_TAX_FOR_WOOCOMMERCE_PLUGIN_BASENAME,
@@ -1287,5 +1192,60 @@ class Hooks {
 		);
 
 		return $response;
+	}
+
+	/**
+	 * Hooks extra necessary sections into the system status report template
+	 */
+	public static function system_status_report(): void {
+		?>
+			<table class="wc_status_table widefat">
+				<thead>
+				<tr>
+					<th colspan="5" data-export-label="Stripe">
+						<h2>
+							<?php esc_html_e( 'Stripe', 'stripe_tax_for_woocommerce' ); ?>
+							<?php echo wp_kses_post( wc_help_tip( esc_html__( 'This section shows details of Stripe.', 'stripe_tax_for_woocommerce' ) ) ); ?>
+						</h2>
+					</th>
+				</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td data-export-label="Account ID">
+							<?php esc_html_e( 'Account ID', 'stripe_tax_for_woocommerce' ); ?>:
+						</td>
+						<td class="help">
+							<?php echo wp_kses_post( wc_help_tip( esc_html__( 'Stripe Account ID.', 'stripe_tax_for_woocommerce' ) ) ); ?>
+						</td>
+						<td>
+							<?php
+							try {
+								if ( ! empty( Options::get_live_mode_key() ) ) {
+									if ( ! empty( Options::get_option( Options::OPTION_LIVE_MODE_ACCOUNT_ID ) ) ) {
+										echo esc_html( Options::get_option( Options::OPTION_LIVE_MODE_ACCOUNT_ID ) );
+									} else {
+										$stripe_client   = new StripeClient( Options::get_live_mode_key() );
+										$account_service = new AccountService( $stripe_client );
+										$api_response    = $account_service->retrieve();
+										if ( ! isset( $api_response->object ) || 'account' !== $api_response->object ) {
+											echo esc_html__( 'Account ID could not be retrieved, please try to reconnect to Stripe.', 'stripe_tax_for_woocommerce' );
+										} else {
+											Options::update_option( Options::OPTION_LIVE_MODE_ACCOUNT_ID, $api_response->{ 'id' } );
+											echo esc_html( Options::get_option( Options::OPTION_LIVE_MODE_ACCOUNT_ID ) );
+										}
+									}
+								} else {
+									echo esc_html__( 'Account ID could not be retrieved, please try to reconnect to Stripe.', 'stripe_tax_for_woocommerce' );
+								}
+							} catch ( \Throwable $e ) {
+								echo esc_html__( 'Account ID could not be retrieved, please try to reconnect to Stripe.', 'stripe_tax_for_woocommerce' );
+							}
+							?>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		<?php
 	}
 }

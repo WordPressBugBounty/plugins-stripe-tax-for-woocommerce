@@ -18,6 +18,7 @@ use stdClass;
 class Options {
 	const OPTION_LIVE_MODE_SECRET_KEY           = 'live_mode_secret_key';
 	const OPTION_LIVE_MODE_ENABLED              = 'live_mode_enabled';
+	const OPTION_LIVE_MODE_ACCOUNT_ID           = 'live_mode_account_id';
 	const OPTION_WOOCOMMERCE_CONNECT_LAST_ERROR = 'woocommerce_connect_last_error';
 	const OPTION_WOOCOMMERCE_CONNECT_LAST_STATE = 'woocommerce_connect_last_state';
 	const CACHE_GROUP                           = 'stripe-tax-for-woocommerce';

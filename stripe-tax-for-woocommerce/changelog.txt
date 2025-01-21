@@ -1,5 +1,9 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
 
+2025-01-21 - version 1.1.6
+* Fixed tax calculation for tax-inclusive prices.
+* Added Stripe Account ID to WooCommerce system status report.
+
 2024-12-13 - version 1.1.5
 * Fixed incorrect displaying error on product edit page when plugin is not enabled.
 

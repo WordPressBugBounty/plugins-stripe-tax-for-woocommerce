@@ -443,6 +443,7 @@ class CalculateTax {
 					if ( $stripe_product['tax_code'] ) {
 						$line_items[ $line_items_counter ]['tax_code'] = $stripe_product['tax_code'];
 					}
+
 					$tax_settings                                      = new TaxSettings( Options::get_live_mode_key() );
 					$line_items[ $line_items_counter ]['tax_behavior'] = $tax_settings->get_tax_behavior();
 				} else {
@@ -518,6 +519,7 @@ class CalculateTax {
 				if ( $stripe_product['tax_code'] ) {
 					$line_items[ $line_items_counter ]['tax_code'] = $stripe_product['tax_code'];
 				}
+
 				$tax_settings                                      = new TaxSettings( Options::get_live_mode_key() );
 				$line_items[ $line_items_counter ]['tax_behavior'] = $tax_settings->get_tax_behavior();
 				$items_reference_already_added[ $reference ]       = $line_items[ $line_items_counter ];
