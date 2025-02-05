@@ -295,6 +295,25 @@ class CalculateTax {
 	 * @return array Prepared customer details for Calculate Tax API call
 	 */
 	public static function get_customer_details_by_post(): array {
+		try {
+			return static::get_customer_details_address();
+		} catch ( Exception $e ) {
+			try {
+				return static::get_customer_details_address( true );
+			} catch ( Exception $e ) {
+				return array();
+			}
+		}
+	}
+
+	/**
+	 * Get customer address details from billing or shipping fields.
+	 *
+	 * @param bool $from_billing If we want to get details from billing fields.
+	 * @return array Customer address details.
+	 * @throws Exception If data is not correct.
+	 */
+	private static function get_customer_details_address( bool $from_billing = false ): array {
 		if ( ! isset( $_POST['stripe_tax_for_woocommerce_customer_details_shipping_address'] ) && ! isset( $_POST['stripe_tax_for_woocommerce_customer_details_billing_address'] ) ) {
 			return array();
 		}
@@ -304,23 +323,18 @@ class CalculateTax {
 			exit;
 		}
 
-		$customer_details         = array();
-		$customer_details_address = map_deep( wp_unslash( $_POST['stripe_tax_for_woocommerce_customer_details_shipping_address'] ?? array() ), 'sanitize_text_field' );
-		try {
-			Validate::validate_customer_details_address( $customer_details_address );
-			$customer_details['address']        = $customer_details_address;
+		$customer_details = array();
+
+		if ( $from_billing || 'disabled' === get_option( 'woocommerce_ship_to_countries' ) ) {
+			$customer_details_address           = map_deep( wp_unslash( $_POST['stripe_tax_for_woocommerce_customer_details_billing_address'] ?? array() ), 'sanitize_text_field' );
+			$customer_details['address_source'] = 'billing';
+		} else {
+			$customer_details_address           = map_deep( wp_unslash( $_POST['stripe_tax_for_woocommerce_customer_details_shipping_address'] ?? array() ), 'sanitize_text_field' );
 			$customer_details['address_source'] = 'shipping';
-		} catch ( Exception $e ) {
-			$customer_details_address = map_deep( wp_unslash( $_POST['stripe_tax_for_woocommerce_customer_details_billing_address'] ?? array() ), 'sanitize_text_field' );
-			try {
-				Validate::validate_customer_details_address( $customer_details_address );
-				$customer_details['address']        = $customer_details_address;
-				$customer_details['address_source'] = 'billing';
-			} catch ( Exception $e ) {
-				return array();
-			}
 		}
 
+		Validate::validate_customer_details_address( $customer_details_address );
+		$customer_details['address'] = $customer_details_address;
 		return $customer_details;
 	}
 

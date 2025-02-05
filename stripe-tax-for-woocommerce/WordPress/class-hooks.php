@@ -499,6 +499,15 @@ class Hooks {
 		// Using this to ignore Woocommerce rates to be displayed in shop.
 		add_filter( 'woocommerce_find_rates', fn () => array() );
 		add_filter( 'pre_option_wc_connect_taxes_enabled', fn () => Options::is_live_mode_enabled() );
+		add_filter(
+			'woocommerce_rest_prepare_shop_order_object',
+			array(
+				static::class,
+				'filter_rest_prepare_shop_order_object',
+			),
+			10,
+			1
+		);
 	}
 
 	/**
@@ -1247,5 +1256,75 @@ class Hooks {
 				</tbody>
 			</table>
 		<?php
+	}
+
+	/**
+	 * Converts tax rate ids from string to integer.
+	 *
+	 * @param WP_REST_Response $response REST response.
+	 */
+	public static function filter_rest_prepare_shop_order_object( $response ) {
+		// phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter
+		$data = $response->get_data();
+
+		$counter = 5000000000;
+
+		if ( isset( $data['line_items'] ) ) {
+			foreach ( $data['line_items'] as $idx_line => $line_item ) {
+				if ( isset( $line_item['taxes'] ) ) {
+					$order_id = $data['id'];
+
+					foreach ( $line_item['taxes'] as $idx_tax => $line_item_tax ) {
+						++$counter;
+						$rate_id = $line_item_tax['id'];
+
+						if ( is_numeric( $rate_id ) || strpos( $rate_id, 'stripe_tax_for_woocommerce__' ) === false ) {
+							break 2;
+						}
+
+						$new_rate_id = $order_id * 1000 + $counter;
+
+						foreach ( $data['tax_lines'] as $idx_tax_2 => $tax_line ) {
+							if ( $tax_line['rate_id'] === $rate_id ) {
+								break;
+							}
+						}
+
+						$data['line_items'][ $idx_line ]['taxes'][ $idx_tax ]['id'] = $new_rate_id;
+						$data['tax_lines'][ $idx_tax_2 ]['rate_id']                 = $new_rate_id;
+					}
+				}
+			}
+		}
+
+		if ( isset( $data['shipping_lines'] ) ) {
+			foreach ( $data['shipping_lines'] as $idx_line => $line_item ) {
+				if ( isset( $line_item['taxes'] ) ) {
+					$order_id = $data['id'];
+					foreach ( $line_item['taxes'] as $idx_tax => $line_item_tax ) {
+						++$counter;
+						$rate_id = $line_item_tax['id'];
+						if ( is_numeric( $rate_id ) || strpos( $rate_id, 'stripe_tax_for_woocommerce__' ) === false ) {
+							break 2;
+						}
+
+						$new_rate_id = $order_id * 1000 + $counter;
+
+						foreach ( $data['tax_lines'] as $idx_tax_2 => $tax_line ) {
+							if ( $tax_line['rate_id'] === $rate_id ) {
+								break;
+							}
+						}
+
+						$data['shipping_lines'][ $idx_line ]['taxes'][ $idx_tax ]['id'] = $new_rate_id;
+						$data['tax_lines'][ $idx_tax_2 ]['rate_id']                     = $new_rate_id;
+					}
+				}
+			}
+		}
+
+		$response->set_data( $data );
+
+		return $response;
 	}
 }
