@@ -1536,8 +1536,9 @@ class StripeTaxPluginHelper {
 		$taxable_shipping_methods = array();
 
 		if ( $wc_cart_or_order instanceof \WC_Cart ) {
-			WC()->shipping()->calculate_shipping( $wc_cart_or_order->get_shipping_packages() );
-			$all_shipping_methods = WC()->shipping()->get_shipping_methods();
+			$packages = $wc_cart_or_order->get_shipping_packages();
+			WC()->shipping()->calculate_shipping( $packages );
+			$all_shipping_methods = WC()->shipping()->load_shipping_methods( isset( $packages[0] ) ? $packages[0] : array() );
 		} elseif ( $wc_cart_or_order instanceof \WC_Order ) {
 			WC()->shipping()->load_shipping_methods(
 				array(
@@ -1623,8 +1624,9 @@ class StripeTaxPluginHelper {
 		$not_taxable_shipping_methods = array();
 
 		if ( $wc_cart_or_order instanceof \WC_Cart ) {
-			WC()->shipping()->calculate_shipping( $wc_cart_or_order->get_shipping_packages() );
-			$all_shipping_methods = WC()->shipping()->get_shipping_methods();
+			$packages = $wc_cart_or_order->get_shipping_packages();
+			WC()->shipping()->calculate_shipping( $packages );
+			$all_shipping_methods = WC()->shipping()->load_shipping_methods( isset( $packages[0] ) ? $packages[0] : array() );
 		} elseif ( $wc_cart_or_order instanceof \WC_Order ) {
 			WC()->shipping()->load_shipping_methods(
 				array(

@@ -497,7 +497,15 @@ class Hooks {
 		);
 
 		// Using this to ignore Woocommerce rates to be displayed in shop.
-		add_filter( 'woocommerce_find_rates', fn () => array() );
+		add_filter(
+			'woocommerce_find_rates',
+			array(
+				static::class,
+				'filter_woocommerce_find_rates',
+			),
+			10,
+			0
+		);
 		add_filter( 'pre_option_wc_connect_taxes_enabled', fn () => Options::is_live_mode_enabled() );
 		add_filter(
 			'woocommerce_rest_prepare_shop_order_object',
@@ -508,6 +516,13 @@ class Hooks {
 			10,
 			1
 		);
+	}
+
+	/**
+	 * Using this to ignore Woocommerce rates to be displayed in shop.
+	 */
+	public static function filter_woocommerce_find_rates() {
+		return array();
 	}
 
 	/**

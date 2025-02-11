@@ -1,4 +1,7 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
+2025-02-11 - version 1.1.8
+* Fixed shipping cost and shipping tax calculation in the checkout page.
+
 2025-02-05 - version 1.1.7
 * Fixed bug that prevented loading orders in WooCommerce mobile.
 * Added handling for when the shipping location is disabled.
