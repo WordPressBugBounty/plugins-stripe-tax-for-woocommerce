@@ -302,4 +302,8 @@ jQuery(document).ready(function ($) {
     $( 'input, textarea, select, checkbox' ).on( 'change input', function (event) {
         $( '.woocommerce-save-button' ).removeAttr( 'disabled' );
     });
+
+	$( '.woocommerce-save-button' ).closest('form').on('submit', function(event) {
+		$( '.woocommerce-save-button' ).css('pointer-events', 'none');
+	})
 });
