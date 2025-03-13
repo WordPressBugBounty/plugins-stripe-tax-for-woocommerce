@@ -1,4 +1,8 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
+2025-03-12 - version 1.1.10
+* Added validation for country, state and postal code before sending API requests.
+* Fixed an issue where product code is changing when a product is edited.
+
 2025-02-17 - version 1.1.9
 * Fixed an issue where duplicate create registration requests were allowed.
 

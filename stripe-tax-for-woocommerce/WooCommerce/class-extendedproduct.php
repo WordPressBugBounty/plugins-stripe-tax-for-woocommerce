@@ -53,10 +53,12 @@ class ExtendedProduct {
 	/**
 	 * Gets additional WooCommerce Product fields from WordPress object cache to reduce database requests.
 	 *
+	 * @param int|null $id Product id, null by default.
+	 *
 	 * @return array
 	 */
-	protected function get_from_object_cache(): array {
-		$product_id = (int) $this->get_product_id();
+	protected function get_from_object_cache( $id = null ): array {
+		$product_id = $id ?? (int) $this->get_product_id();
 		$products   = wp_cache_get( 'products', 'stripe-tax-for-woocommerce' );
 
 		if ( ! is_array( $products ) || ! array_key_exists( $product_id, $products ) ) {
@@ -93,70 +95,22 @@ class ExtendedProduct {
 	 * @return string
 	 * @throws \Exception In case of invalid tax code entered.
 	 */
-	public static function get_on_save_post_parameter_tax_code( WC_Data $wc_data ): string {
-		$action = isset( $_REQUEST['action'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['action'] ) ) : '';
-		$nonce  = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
+	public function get_on_save_post_parameter_tax_code( WC_Data $wc_data ): string {
+		$tax_code = '';
+		$nonce    = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
+		wp_verify_nonce( $nonce );
 
-		$post_id = $wc_data->get_id();
-		$post    = get_post( $post_id );
-
-		if ( isset( $_POST['deletepost'] ) ) {
-			$action = 'delete';
-		} elseif ( isset( $_POST['wp-preview'] ) && 'dopreview' === $_POST['wp-preview'] ) {
-			$action = 'preview';
+		if ( isset( $_POST['_stripe_tax_for_woocommerce_tax_code'] ) ) {
+			$tax_code = sanitize_text_field( wp_unslash( $_POST['_stripe_tax_for_woocommerce_tax_code'] ) );
+		} elseif ( $wc_data->get_parent_id() ) {
+			$tax_code = $this->get_extended_product( $wc_data->get_parent_id() )['tax_code'];
+		} else {
+			$product = $this->get_extended_product();
+			if ( ! empty( $product ) && ! empty( $product['tax_code'] ) ) {
+				$tax_code = sanitize_text_field( wp_unslash( $product['tax_code'] ) );
+			}
 		}
 
-		switch ( $action ) {
-			case 'post-quickdraft-save':
-				check_admin_referer( 'add-' . $post->post_type );
-				if ( ! wp_verify_nonce( $nonce, 'add-post' ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			case 'postajaxpost':
-			case 'post':
-				check_admin_referer( 'add-' . $post->post_type );
-				if ( ! wp_verify_nonce( $nonce, 'add-' . $post->post_type ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			case 'editattachment':
-			case 'editpost':
-			case 'preview':
-				check_admin_referer( 'update-post_' . $post_id );
-				if ( ! wp_verify_nonce( $nonce, 'update-post_' . $post_id ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			case 'trash':
-				check_admin_referer( 'trash-post_' . $post_id );
-				if ( ! wp_verify_nonce( $nonce, 'trash-post_' . $post_id ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			case 'untrash':
-				check_admin_referer( 'untrash-post_' . $post_id );
-				if ( ! wp_verify_nonce( $nonce, 'untrash-post_' . $post_id ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			case 'delete':
-				check_admin_referer( 'delete-post_' . $post_id );
-				if ( ! wp_verify_nonce( $nonce, 'delete-post_' . $post_id ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			case 'toggle-custom-fields':
-				check_admin_referer( 'toggle-custom-fields', 'toggle-custom-fields-nonce' );
-				if ( ! wp_verify_nonce( $nonce, 'toggle-custom-fields-nonce' ) ) {
-					StripeTaxPluginHelper::do_exit();
-				}
-				break;
-			default:
-				return '';
-		}
-
-		$tax_code = sanitize_text_field( wp_unslash( $_POST['_stripe_tax_for_woocommerce_tax_code'] ?? '' ) );
 		if ( '' !== $tax_code && 'stfwc_inherit' !== $tax_code ) { // Empty and "stfwc_inherit" "tax_code" values are valid and in this situation means "using global Stripe Tax Settings parameter".
 			Validate::validate_tax_code( $tax_code, Options::get_live_mode_key() );
 		}
@@ -166,9 +120,11 @@ class ExtendedProduct {
 	/**
 	 * Gets additional WooCommerce Product fields from database.
 	 *
+	 * @param int|null $id Product id, null by default.
+	 *
 	 * @return array
 	 */
-	protected function get_from_db() {
+	protected function get_from_db( $id = null ) {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -179,7 +135,7 @@ class ExtendedProduct {
 					'tax_code',
 					static::TABLE_NAME,
 					'product_id',
-					$this->product_id,
+					$id ?? $this->product_id,
 				)
 			),
 			ARRAY_A
@@ -216,17 +172,19 @@ class ExtendedProduct {
 	/**
 	 * Load additional WooCommerce Product fields from WordPress object cache or database.
 	 *
-	 * @param bool $skip_object_cache Skip object cache.
+	 * @param int|null $id Product id, null by default.
+	 *
+	 * @param bool     $skip_object_cache Skip object cache.
 	 */
-	public function get_extended_product( $skip_object_cache = false ): array {
+	public function get_extended_product( $id = null, $skip_object_cache = false ): array {
 		if ( ! $skip_object_cache ) {
-			$product = $this->get_from_object_cache();
+			$product = $this->get_from_object_cache( $id );
 			if ( $product ) {
 				return $product;
 			}
 		}
 
-		$product = $this->get_from_db();
+		$product = $this->get_from_db( $id );
 		if ( $product ) {
 			$this->set_into_object_cache( $product );
 

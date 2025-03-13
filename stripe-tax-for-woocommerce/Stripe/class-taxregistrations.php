@@ -58,6 +58,7 @@ class TaxRegistrations {
 	 *
 	 * @return mixed|Collection
 	 * @throws ApiErrorException In case of API error.
+	 * @throws Exception In case of error.
 	 * @see https://stripe.com/docs/api/tax/registrations/all
 	 */
 	public function get_registrations( bool $force = false ) {
@@ -65,31 +66,49 @@ class TaxRegistrations {
 			return self::$tax_registrations[ $this->api_key ];
 		}
 
+		$active_registrations = $this->get_registrations_by_status();
+		$all_registrations    = $this->get_registrations_by_status( 'scheduled', $active_registrations->data );
+
+		self::$tax_registrations[ $this->api_key ] = $all_registrations;
+
+		return self::$tax_registrations[ $this->api_key ];
+	}
+
+	/**
+	 * Get Tax Registration by status
+	 *
+	 * @param string $status Tax Registration Status, default status is 'active'.
+	 * @param array  $tax_registrations An array of registrations.
+	 *
+	 * @return Collection
+	 *
+	 * @throws Exception In case of error.
+	 */
+	private function get_registrations_by_status( string $status = 'active', array $tax_registrations = array() ): Collection {
 		$stripe_client             = $this->get_stripe_client( $this->api_key );
 		$tax_registrations_service = new RegistrationService( $stripe_client );
-		$api_response              = $tax_registrations_service->all();
+		$api_response              = $tax_registrations_service->all(
+			array(
+				'status' => $status,
+			)
+		);
 		if ( ! isset( $api_response->object ) || 'list' !== $api_response->object ) {
 			throw new Exception( esc_html__( 'Unexpected response from Stripe', 'stripe-tax-for-woocommerce' ) . ': ' . wp_json_encode( $api_response ) );
 		}
-		$counter = 0;
-		$result  = array();
-		foreach ( $api_response->autoPagingIterator() as $registration ) {
-			if ( 'expired' === $registration->status ) {
-				continue;
-			}
 
-			$result[] = $registration;
+		$counter = count( $tax_registrations );
+
+		foreach ( $api_response->autoPagingIterator() as $registration ) {
+			$tax_registrations[] = $registration;
 			++$counter;
 			if ( $counter > 1000 ) {
 				throw new Exception( esc_html__( 'Too many tax registrations', 'stripe-tax-for-woocommerce' ) );
 			}
 		}
 
-		$api_response->data = $result;
+		$api_response->data = $tax_registrations;
 
-		self::$tax_registrations[ $this->api_key ] = $api_response;
-
-		return self::$tax_registrations[ $this->api_key ];
+		return $api_response;
 	}
 
 	/**

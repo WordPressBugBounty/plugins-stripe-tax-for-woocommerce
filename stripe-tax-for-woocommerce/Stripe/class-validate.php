@@ -15,6 +15,7 @@ use Stripe\StripeTaxForWooCommerce\Stripe\Exception\CountryStateException;
 use Stripe\StripeTaxForWooCommerce\Stripe\Exception\CountrySupportException;
 use Stripe\StripeTaxForWooCommerce\Stripe\Exception\TaxBehaviorException;
 use Stripe\StripeTaxForWooCommerce\WordPress\Options;
+use WC_Validation;
 
 /**
  * Validation service
@@ -85,17 +86,25 @@ class Validate {
 	 * Validate country supported as Stripe Origin address
 	 *
 	 * @param string $country Country.
+	 * @param string $message_type Message type, default 'settings'.
 	 *
 	 * @return void
 	 * @throws CountrySupportException In case if not passing validation.
 	 */
-	public static function validate_country_support( $country ) {
+	public static function validate_country_support( $country, $message_type = 'settings' ) {
 		$countries = StripeTaxPluginHelper::get_allowed_origin_address_countries();
 
 		if ( is_string( $country ) && '' !== $country && array_key_exists( $country, $countries ) ) {
 			return;
 		}
-		throw new CountrySupportException( esc_html__( 'Stripe Tax isn\'t yet supported for your country. Please contact stripe-tax-support@stripe.com to register your interest or if you want to collect tax in a supported market.', 'stripe-tax-for-woocommerce' ) );
+
+		$error_message = esc_html__( 'Stripe Tax isn\'t yet supported for your country. Please contact stripe-tax-support@stripe.com to register your interest or if you want to collect tax in a supported market.', 'stripe-tax-for-woocommerce' );
+		if ( 'tax_validation' === $message_type ) {
+			$error_message = esc_html__( 'Country field from billing/shipping address is invalid!', 'stripe-tax-for-woocommerce' );
+		}
+
+		// phpcs:ignore
+		throw new CountrySupportException( esc_html__( $error_message ) );
 	}
 
 	/**
@@ -104,16 +113,24 @@ class Validate {
 	 * @param string                $country CISO 3166-1 alpha-2 country code.
 	 * @param string                $state State to be validated.
 	 * @param array<string, string> $states States array.
+	 * @param string                $message_type Message type, default 'settings'.
 	 *
 	 * @return void
 	 * @throws CountryStateException If not valid.
 	 */
-	public static function validate_country_state( $country, $state, $states ) {
+	public static function validate_country_state( $country, $state, $states, $message_type = 'settings' ) {
 		if ( is_string( $state ) && '' !== $state && array_key_exists( $state, $states ) ) {
 			return;
 		}
+
 		/* translators: %s: Name of a country */
-		throw new CountryStateException( esc_html__( 'Country %s requires more information to calculate taxes accurately. Make sure you provide a province', 'stripe-tax-for-woocommerce' ) );
+		$error_message = esc_html__( 'Country %s requires more information to calculate taxes accurately. Make sure you provide a province.', 'stripe-tax-for-woocommerce' );
+		if ( 'tax_validation' === $message_type ) {
+			$error_message = esc_html__( 'State field from billing/shipping address is invalid!', 'stripe-tax-for-woocommerce' );
+		}
+
+		// phpcs:ignore
+		throw new CountryStateException( esc_html__( $error_message ) );
 	}
 
 	/**
@@ -307,6 +324,32 @@ class Validate {
 
 		if ( ( 'CA' === $customer_details_address['country'] ) && ( empty( $customer_details_address['postal_code'] ) || empty( $customer_details_address['state'] ) ) ) {
 			throw new Exception( esc_html__( 'Postcode and State fields from billing/shipping address can not be empty if country is set to "CA"', 'stripe-tax-for-woocommerce' ) );
+		}
+
+		self::validate_country_support( $customer_details_address['country'], 'tax_validation' );
+
+		$state_handlers = array(
+			'AE' => 'get_allowed_origin_address_ae_provinces',
+			'AU' => 'get_allowed_origin_address_au_states',
+			'CA' => 'get_allowed_origin_address_ca_provinces',
+			'ES' => 'get_allowed_origin_address_es_provinces',
+			'HK' => 'get_allowed_origin_address_hk_areas',
+			'IE' => 'get_allowed_origin_address_ie_counties',
+			'IT' => 'get_allowed_origin_address_it_provinces',
+			'JP' => 'get_allowed_origin_address_jp_prefectures',
+			'US' => 'get_allowed_origin_address_us_states',
+		);
+
+		if ( isset( $state_handlers[ $customer_details_address['country'] ] ) && ! empty( $customer_details_address['state'] ) ) {
+			$handler_method = $state_handlers[ $customer_details_address['country'] ];
+			self::validate_country_state( $customer_details_address['country'], $customer_details_address['state'], StripeTaxPluginHelper::$handler_method(), 'tax_validation' );
+		}
+
+		if ( in_array( $customer_details_address['country'], array( 'US', 'CA' ), true ) &&
+			! empty( $customer_details_address['postal_code'] ) &&
+			! WC_Validation::is_postcode( $customer_details_address['postal_code'], $customer_details_address['country'] )
+		) {
+			throw new Exception( esc_html__( 'Postcode field from billing/shipping address is invalid.', 'stripe-tax-for-woocommerce' ) );
 		}
 	}
 

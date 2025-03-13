@@ -17,6 +17,8 @@ use Stripe\StripeTaxForWooCommerce\SDK\lib\Service\AccountService;
 use Stripe\StripeTaxForWooCommerce\SDK\lib\Stripe;
 use Stripe\StripeTaxForWooCommerce\SDK\lib\StripeClient;
 use Stripe\StripeTaxForWooCommerce\Stripe\CalculateTax;
+use Stripe\StripeTaxForWooCommerce\Stripe\Exception\CountryStateException;
+use Stripe\StripeTaxForWooCommerce\Stripe\Exception\CountrySupportException;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxCodeList;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxExemptions;
@@ -225,10 +227,10 @@ class Hooks {
 	 *
 	 * @throws Exception If something goes wrong.
 	 */
-	public static function action_woocommerce_after_product_object_save( WC_Data $wc_data ) {
+	public function action_woocommerce_after_product_object_save( WC_Data $wc_data ) {
 		$stripe_wc_product = new ExtendedProduct( $wc_data->get_id() );
 
-		$posted_tax_code = ExtendedProduct::get_on_save_post_parameter_tax_code( $wc_data );
+		$posted_tax_code = $stripe_wc_product->get_on_save_post_parameter_tax_code( $wc_data );
 
 		$stripe_wc_product->save_extended_product(
 			array(
@@ -344,14 +346,17 @@ class Hooks {
 	 *
 	 * @return void
 	 */
-	protected static function add_actions(): void {
-		static::admin_enqueue_scripts();
+	protected function add_actions(): void {
+		if ( static::is_stripe_tab_selected() ) {
+			static::admin_enqueue_scripts();
+		}
+
 		static::admin_ajax();
 		static::add_action_tax_exemptions( static::$tax_exemptions );
 		add_action(
 			'woocommerce_after_product_object_save',
 			array(
-				static::class,
+				$this,
 				'action_woocommerce_after_product_object_save',
 			),
 			10,
@@ -451,6 +456,17 @@ class Hooks {
 		);
 
 		add_action( 'admin_notices', array( static::class, 'render_admin_notices' ) );
+	}
+
+	/**
+	 * Check if current tab is Stripe tab.
+	 *
+	 * @return bool If is on Stripe tab.
+	 */
+	private static function is_stripe_tab_selected(): bool {
+		// There are no nonce exists or needed, because it is just a regular page view without any changes made by user input.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		return isset( $_GET['page'] ) && 'wc-settings' === $_GET['page'] && isset( $_GET['tab'] ) && 'stripe_tax_for_woocommerce' === $_GET['tab'];
 	}
 
 	/**
@@ -689,15 +705,24 @@ class Hooks {
 	 * @param Exception $e Handled exception.
 	 */
 	public static function handle_calculate_tax_error( $e ) {
-		if ( ! ErrorRenderer::get_error_object( 'calculate_tax_error' )->message ) {
-			ErrorRenderer::set_error_object( 'calculate_tax_error', 'Stripe Tax: ' . $e->getMessage(), 'error' );
+		$message_id = 'calculate_tax_error';
+		if ( $e instanceof CountrySupportException ) {
+			$message_id = 'setting_country_error';
+		}
+
+		if ( $e instanceof CountryStateException ) {
+			$message_id = 'setting_state_error';
+		}
+
+		if ( ! ErrorRenderer::get_error_object( $message_id )->message ) {
+			ErrorRenderer::set_error_object( $message_id, 'Stripe Tax: ' . $e->getMessage(), 'error' );
 		} else {
 			// Error already reported.
 			return;
 		}
 
 		if ( ! static::$error_reporting_collect ) {
-			echo wp_kses( ErrorRenderer::get_rendered_error( 'calculate_tax_error' ), StripeTaxPluginHelper::get_admin_allowed_html() );
+			echo wp_kses( ErrorRenderer::get_rendered_error( $message_id ), StripeTaxPluginHelper::get_admin_allowed_html() );
 		} else {
 			static::$error_reporting_collect_enabled = true;
 		}
@@ -823,9 +848,18 @@ class Hooks {
 			$tax_transaction->create( $response, $order_id );
 			$calculate_tax->delete();
 		} catch ( Exception $e ) {
-			if ( ! ErrorRenderer::get_error_object( 'calculate_tax_error' )->message && is_admin() ) {
-				ErrorRenderer::set_error_object( 'calculate_tax_error', 'Stripe Tax: ' . $e->getMessage(), 'error' );
-				echo wp_kses( ErrorRenderer::get_rendered_error( 'calculate_tax_error' ), StripeTaxPluginHelper::get_admin_allowed_html() );
+			$message_id = 'calculate_tax_error';
+			if ( $e instanceof CountrySupportException ) {
+				$message_id = 'setting_country_error';
+			}
+
+			if ( $e instanceof CountryStateException ) {
+				$message_id = 'setting_state_error';
+			}
+
+			if ( ! ErrorRenderer::get_error_object( $message_id )->message && is_admin() ) {
+				ErrorRenderer::set_error_object( $message_id, 'Stripe Tax: ' . $e->getMessage(), 'error' );
+				echo wp_kses( ErrorRenderer::get_rendered_error( $message_id ), StripeTaxPluginHelper::get_admin_allowed_html() );
 			}
 		}
 	}
@@ -1031,7 +1065,7 @@ class Hooks {
 	 *
 	 * @return void
 	 */
-	public static function init( bool $force = false ): void {
+	public function init( bool $force = false ): void {
 		add_action( 'admin_init', array( static::class, 'action_admin_init' ), 5, 0 );
 		add_action( 'woocommerce_system_status_report', array( static::class, 'system_status_report' ) );
 
@@ -1050,7 +1084,7 @@ class Hooks {
 
 			static::$hooks_initialized = true;
 
-			static::add_actions();
+			$this->add_actions();
 			static::add_filters();
 		}
 	}
