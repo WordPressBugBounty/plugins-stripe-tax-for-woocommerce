@@ -163,19 +163,21 @@ class Hooks {
 			'disconnect_from_stripe_message_confirmation' => __( 'Are you sure you want to disconnect Stripe Tax plugin from Stripe Account?', 'stripe-tax-for-woocommerce' ),
 		);
 
-		$api_key = Options::get_live_mode_key();
+		if ( static::is_stripe_tab_selected() ) {
+			$api_key = Options::get_live_mode_key();
 
-		try {
-			$tax_registrations = new TaxRegistrations( $api_key );
-			// $locks array contains prepared for easy check list of already added tax registrations.
-			// In this case it used to lock "on-the-fly" checkboxes as checked and disabled by JavaScript.
-			$locks                                      = $tax_registrations->get_locks();
-			$localize_script['tax_registrations_locks'] = $locks;
-			// phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
-		} catch ( Exception $e ) {
-			$stripe_tax_error_message = 'Error fetching tax registrations: ' . $e->getMessage();
+			try {
+				$tax_registrations = new TaxRegistrations( $api_key );
+				// $locks array contains prepared for easy check list of already added tax registrations.
+				// In this case it used to lock "on-the-fly" checkboxes as checked and disabled by JavaScript.
+				$locks                                      = $tax_registrations->get_locks();
+				$localize_script['tax_registrations_locks'] = $locks;
+				// phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			} catch ( Exception $e ) {
+				$stripe_tax_error_message = 'Error fetching tax registrations: ' . $e->getMessage();
+			}
+			wp_localize_script( 'stripe_tax_for_woocommerce_admin', 'stripe_tax_for_woocommerce', $localize_script );
 		}
-		wp_localize_script( 'stripe_tax_for_woocommerce_admin', 'stripe_tax_for_woocommerce', $localize_script );
 	}
 
 	/**
@@ -347,9 +349,7 @@ class Hooks {
 	 * @return void
 	 */
 	protected function add_actions(): void {
-		if ( static::is_stripe_tab_selected() ) {
-			static::admin_enqueue_scripts();
-		}
+		static::admin_enqueue_scripts();
 
 		static::admin_ajax();
 		static::add_action_tax_exemptions( static::$tax_exemptions );
