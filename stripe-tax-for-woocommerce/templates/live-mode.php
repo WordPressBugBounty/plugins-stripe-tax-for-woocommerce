@@ -161,7 +161,8 @@ try {
 									value="0">
 							<input autocomplete="off" name="stripe_tax_for_woocommerce_enable_live_mode"
 									id="stripe_tax_for_woocommerce_id_enable_live_mode" type="checkbox" class=""
-									value="1"<?php checked( $stfwc_live_mode_enabled && $stfwc_wc_tax_enabled ); ?> <?php
+									value="1"<?php checked( $stfwc_live_mode_enabled && $stfwc_wc_tax_enabled ); ?>
+									<?php
 									if ( ! $stfwc_live_key || ! $stfwc_wc_tax_enabled ) {
 										echo 'disabled="disabled"';
 									}

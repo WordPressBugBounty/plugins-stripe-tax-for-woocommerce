@@ -456,6 +456,41 @@ class Hooks {
 		);
 
 		add_action( 'admin_notices', array( static::class, 'render_admin_notices' ) );
+		add_action(
+			'woocommerce_store_api_checkout_order_processed',
+			array(
+				static::class,
+				'action_update_order_custom_tags',
+			),
+			100,
+			13
+		);
+		add_action(
+			'__experimental_woocommerce_blocks_checkout_order_processed',
+			array(
+				static::class,
+				'action_update_order_custom_tags',
+			),
+			100,
+			1
+		);
+		add_action(
+			'woocommerce_blocks_checkout_order_processed',
+			array(
+				static::class,
+				'action_update_order_custom_tags',
+			),
+			100,
+			1
+		);
+		add_action(
+			'woocommerce_checkout_order_processed',
+			function ( $id_order, $posted_data, $wc_order ) {
+				static::action_update_order_custom_tags( $wc_order );
+			},
+			100,
+			3
+		);
 	}
 
 	/**
@@ -532,6 +567,20 @@ class Hooks {
 			10,
 			1
 		);
+		add_filter(
+			'woocommerce_order_item_get_formatted_meta_data',
+			function ( $formatted_meta ) {
+				foreach ( $formatted_meta as $key => $meta ) {
+					if ( '_stripe_not_subtotal_include_tax' === $meta->key ) {
+						unset( $formatted_meta[ $key ] );
+					}
+				}
+
+				return $formatted_meta;
+			},
+			10,
+			2
+		);
 	}
 
 	/**
@@ -539,6 +588,39 @@ class Hooks {
 	 */
 	public static function filter_woocommerce_find_rates() {
 		return array();
+	}
+
+	/**
+	 * Updates an order "_stripe_not_subtotal_include_tax" tags.
+	 *
+	 * @param \WC_Order $wc_order WooCommerce order.
+	 */
+	public static function action_update_order_custom_tags( $wc_order ) {
+		if ( ! wc_prices_include_tax() ) {
+			return;
+		}
+
+		static::update_order_custom_tags( $wc_order );
+	}
+
+	/**
+	 * Update an order items include taxes tag.
+	 *
+	 * @param \WC_Order $wc_order WooCommerce order.
+	 */
+	public static function update_order_custom_tags( $wc_order ) {
+		$order_line_items     = $wc_order->get_items();
+		$order_shipping_items = $wc_order->get_items( 'shipping' );
+
+		foreach ( $order_line_items as $line_item ) {
+			$line_item->update_meta_data( '_stripe_not_subtotal_include_tax', 'yes' );
+		}
+
+		foreach ( $order_shipping_items as $shipping_item ) {
+			$shipping_item->update_meta_data( '_stripe_not_subtotal_include_tax', 'yes' );
+		}
+
+		$wc_order->save();
 	}
 
 	/**
@@ -606,6 +688,33 @@ class Hooks {
 
 			$line_items = $wc_order->get_items();
 
+			$cart_line_items = array();
+			foreach ( $line_items as $line_item_id => $line_item ) {
+				$key                     = $line_item->get_product_id() . '#' . $line_item->get_variation_id();
+				$cart_line_items[ $key ] = array(
+					'reference'     => $line_item->get_name() . '#' . $line_item_id,
+					'line_subtotal' => $line_item->get_subtotal(),
+					'line_total'    => $line_item->get_total(),
+				);
+			}
+
+			$cart_hash = $wc_order->get_cart_hash();
+
+			if ( WC()->session ) {
+				$cart_totals = WC()->session->get( 'stripe_tax_for_woocommerce_cart_taxes_' . $cart_hash );
+			} else {
+				$cart_totals = null;
+			}
+
+			if ( ! is_array( $cart_totals ) ) {
+				$cart_totals       = static::get_totals_from_response( $cart_line_items, $response );
+				$total_from_cart   = 0;
+				$cart_contents_tax = 0;
+			} else {
+				$total_from_cart   = $cart_totals['total'];
+				$cart_contents_tax = $cart_totals['cart_contents_tax'];
+			}
+
 			$order_item_taxes      = array();
 			$order_item_tax_totals = array();
 
@@ -644,7 +753,6 @@ class Hooks {
 				}
 
 				++$counter;
-
 			}
 
 			foreach ( $order_item_taxes as $order_item_tax ) {
@@ -654,20 +762,23 @@ class Hooks {
 				$wc_order->save();
 			}
 
-			$counter = 0;
-
 			foreach ( $line_items as $line_item ) {
-				if ( array_key_exists( $counter, $order_item_tax_totals ) ) {
-					unset( $order_item_tax_totals[ $counter ]['inclusive'] );
-					unset( $order_item_tax_totals[ $counter ]['amount'] );
-					$line_item->set_taxes( $order_item_tax_totals[ $counter ] );
-					$item_tax_total    = array_sum( array_values( $order_item_tax_totals[ $counter ]['total'] ) );
-					$item_tax_subtotal = array_sum( array_values( $order_item_tax_totals[ $counter ]['subtotal'] ) );
+				$key          = $line_item->get_product_id() . '#' . $line_item->get_variation_id();
+				$line_item_id = $key;
+				if ( array_key_exists( $line_item_id, $cart_totals['cart_contents'] ) ) {
+					$item_total        = $cart_totals['cart_contents'][ $line_item_id ]['line_total'];
+					$item_subtotal     = $cart_totals['cart_contents'][ $line_item_id ]['line_subtotal'];
+					$item_taxes        = $cart_totals['cart_contents'][ $line_item_id ]['line_tax_data'];
+					$item_tax_total    = $cart_totals['cart_contents'][ $line_item_id ]['line_tax'];
+					$item_tax_subtotal = $cart_totals['cart_contents'][ $line_item_id ]['line_subtotal_tax'];
+
+					$line_item->set_subtotal( $item_subtotal );
+					$line_item->set_total( $item_total );
+					$line_item->set_taxes( $item_taxes );
 					$line_item->set_subtotal_tax( $item_tax_subtotal );
 					$line_item->set_total_tax( $item_tax_total );
 					$line_item->save();
 				}
-				++$counter;
 			}
 
 			if ( $shipping_cost ) {
@@ -686,9 +797,26 @@ class Hooks {
 				}
 			}
 
-			$wc_order->set_cart_tax( $denormalized_tax_amount );
-			$wc_order->set_total( NumberUtil::round( $denormalized_amount_total + $wc_order->get_total_fees() + CalculateTax::get_cart_or_order_not_taxable_shipping_total( $wc_order ), wc_get_price_decimals() ) );
+			$wc_order->set_discount_tax( $cart_totals['discount_tax'] );
+
+			if ( $total_from_cart ) {
+				$wc_order->set_cart_tax( $cart_contents_tax );
+				$wc_order->set_total( NumberUtil::round( $total_from_cart, wc_get_price_decimals() ) );
+			} else {
+				$wc_order->set_cart_tax( $cart_totals['cart_contents_tax'] );
+				$wc_order->set_total( NumberUtil::round( $denormalized_amount_total + $wc_order->get_total_fees() + CalculateTax::get_cart_or_order_not_taxable_shipping_total( $wc_order ), wc_get_price_decimals() ) );
+			}
+
+			$wc_order->update_taxes();
+
+			$order_prices_include_tax_tag = $wc_order->get_prices_include_tax();
+
+			if ( ( true === $order_prices_include_tax_tag || 'yes' === $order_prices_include_tax_tag ) || wc_prices_include_tax() ) {
+				static::update_order_custom_tags( $wc_order );
+			}
+
 			$wc_order->save();
+
 		} catch ( Exception $e ) {
 			static::handle_calculate_tax_error( $e );
 		}
@@ -1017,8 +1145,7 @@ class Hooks {
 			CalculateTax::calculate_cart_shipping( $shipping_methods, $wc_cart );
 			CalculateTax::calculate_cart_totals( $response, $wc_cart, $currency );
 
-			static::calculate_cart_line_item_taxes( $wc_cart );
-
+			static::calculate_cart_contents_taxes_from_line_items( $wc_cart, $response );
 		} catch ( ApiErrorException $e ) {
 			if ( is_ajax() ) {
 				ErrorRenderer::add_stripe_wc_notice( $e->getMessage(), 'error' );
@@ -1130,89 +1257,170 @@ class Hooks {
 	}
 
 	/**
-	 * Filter to alter cart totals.
-	 * Used here to set shipping taxes.
+	 * Calculates an order or cart line item totals
 	 *
-	 * @param \WC_Cart $wc_cart WooCommerce Cart object.
+	 * @param array  $line_items Orde or cart item lines.
+	 * @param object $response API Response.
 	 */
-	public static function calculate_cart_line_item_taxes( $wc_cart ) {
-		$currency = strtolower( get_woocommerce_currency() );
+	public static function get_totals_from_response( $line_items, $response ) {
+		$subtotal            = 0;
+		$subtotal_tax        = 0;
+		$cart_contents_total = 0;
+		$cart_contents       = array();
+		$cart_contents_tax   = 0;
+		$cart_contents_taxes = array();
+		$discount_tax        = 0;
 
-		$customer = $wc_cart->get_customer();
+		foreach ( $line_items as $item_key => $line_item ) {
+			$line_tax_data = array(
+				'subtotal'   => array(),
+				'total'      => array(),
+				'percentage' => array(),
+			);
 
-		$line_items = CalculateTax::get_line_items_by_cart( $wc_cart );
+			foreach ( $response->line_items->data as $datum ) {
+				if ( $datum->reference !== $line_item['reference'] ) {
+					continue;
+				}
 
-		$customer_details                        = CalculateTax::get_customer_details_by_order( $customer );
-		$customer_details['taxability_override'] = static::$tax_exemptions->get_tax_exeption( get_current_user_id() );
+				$prices_include_tax = ! ( 'exclusive' === $datum->tax_behavior );
+				$has_discount       = $line_item['line_subtotal'] !== $line_item['line_total'];
 
-		if ( ! CalculateTax::can_calculate_tax( $customer_details ) ) {
-			return;
+				$line_total_rate_percentage = 0;
+				$line_subtotal              = $line_item['line_subtotal'];
+				$line_total                 = $datum->amount - ( ! $prices_include_tax ? 0 : $datum->amount_tax );
+				$line_tax                   = $datum->amount_tax;
+
+				foreach ( $datum->tax_breakdown as $tax_breakdown ) {
+					if ( ! isset( $tax_breakdown->tax_rate_details ) && ! is_object( $tax_breakdown->tax_rate_details ) ) {
+						continue;
+					}
+
+					$rate_name       = $tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name;
+					$rate_percentage = $tax_breakdown->tax_rate_details->percentage_decimal;
+					$tax_type        = $tax_breakdown->tax_rate_details->tax_type;
+					$rate_key        = 'stripe_tax_for_woocommerce__' . $tax_type . '__' . $rate_percentage . '__' . $rate_name;
+
+					if ( ! array_key_exists( $rate_key, $cart_contents_taxes ) ) {
+						$cart_contents_taxes[ $rate_key ] = 0;
+					}
+
+					if ( ! array_key_exists( $rate_key, $line_tax_data['subtotal'] ) ) {
+						$line_tax_data['subtotal'][ $rate_key ]   = 0;
+						$line_tax_data['total'][ $rate_key ]      = 0;
+						$line_tax_data['percentage'][ $rate_key ] = 0;
+					}
+
+					$line_total_rate_percentage += $rate_percentage;
+
+					$cart_contents_taxes[ $rate_key ] += $tax_breakdown->amount;
+
+					$line_tax_data['total'][ $rate_key ]      += $tax_breakdown->amount;
+					$line_tax_data['percentage'][ $rate_key ] += $rate_percentage;
+				}
+
+				if ( ! $prices_include_tax ) {
+					$line_subtotal = $line_item['line_subtotal'];
+				} else {
+					$line_subtotal = ! $has_discount ? NumberUtil::round( wc_remove_number_precision( $line_total ), wc_get_price_decimals() ) : $line_item['line_subtotal'] * 100 / ( 100 + $line_total_rate_percentage );
+				}
+
+				foreach ( $line_tax_data['total'] as $rate_key => $line_tax_data_total ) {
+					if ( $has_discount ) {
+						$line_tax_data['subtotal'][ $rate_key ] = $line_subtotal * $line_tax_data['percentage'][ $rate_key ];
+					} else {
+						$line_tax_data['subtotal'][ $rate_key ] = $line_tax_data_total;
+					}
+				}
+
+				$cart_contents[ $item_key ]['line_tax_data'] = array(
+					'total'    => wc_remove_number_precision_deep( $line_tax_data['total'] ),
+					'subtotal' => wc_remove_number_precision_deep( $line_tax_data['subtotal'] ),
+				);
+
+				$line_subtotal_tax = NumberUtil::round( wc_remove_number_precision( array_sum( $line_tax_data['subtotal'] ) ), wc_get_price_decimals() );
+				$line_tax          = NumberUtil::round( wc_remove_number_precision( array_sum( $line_tax_data['total'] ) ), wc_get_price_decimals() );
+
+				$line_total = ! $prices_include_tax ? $line_item['line_total'] : $line_item['line_total'] - $line_tax;
+
+				$cart_contents[ $item_key ]['line_total']        = $line_total;
+				$cart_contents[ $item_key ]['line_subtotal']     = $line_subtotal;
+				$cart_contents[ $item_key ]['line_subtotal_tax'] = $line_subtotal_tax;
+				$cart_contents[ $item_key ]['line_tax']          = $line_tax;
+
+				$subtotal_tax        += $line_subtotal_tax;
+				$cart_contents_tax   += $line_tax;
+				$cart_contents_total += $line_total;
+				$subtotal            += $line_subtotal;
+
+				if ( $has_discount ) {
+					$discount_tax += ( $line_subtotal_tax - $line_tax );
+				}
+			}
 		}
 
-		$shipping_cost = CalculateTax::get_taxable_shipping_cost_from_cart_or_order_for_api( $wc_cart, $currency );
-
-		$calculate_tax = new CalculateTax(
-			Options::get_live_mode_key(),
-			$currency,
-			$line_items,
-			$customer_details,
-			$shipping_cost
+		return array(
+			'cart_contents'       => $cart_contents,
+			'cart_contents_taxes' => wc_remove_number_precision_deep( $cart_contents_taxes ),
+			'subtotal'            => $subtotal,
+			'cart_contents_total' => $cart_contents_total,
+			'cart_contents_tax'   => $cart_contents_tax,
+			'subtotal_tax'        => $subtotal_tax,
+			'discount_tax'        => $discount_tax,
 		);
-
-		$response = $calculate_tax->get_response();
-
-		$new_total_taxes = static::calculate_cart_contents_taxes( $wc_cart, $response );
-
-		$wc_cart->set_cart_contents_taxes( $new_total_taxes );
 	}
-
 	/**
 	 * Calculates cart item totals.
 	 *
 	 * @param \WC_Cart  $wc_cart WooCommerce Cart object.
 	 * @param \stdClass $response Stripe Tax Api response.
 	 */
-	public static function calculate_cart_contents_taxes( $wc_cart, $response ) {
-		$new_item_tax_rates = array();
-		$new_total_taxes    = array();
+	public static function calculate_cart_contents_taxes_from_line_items( $wc_cart, $response ) {
+		$line_items = array();
 
 		foreach ( $wc_cart->cart_contents as $item_key => $line_item ) {
-			foreach ( $response->line_items->data as $datum ) {
-				if ( $datum->reference === $line_item['data']->get_name() ) {
-					foreach ( $datum->tax_breakdown as $tax_breakdown ) {
-						if ( ! isset( $tax_breakdown->tax_rate_details ) && ! is_object( $tax_breakdown->tax_rate_details ) ) {
-							continue;
-						}
+			$line_item['reference'] = $line_item['data']->get_name();
+			$key                    = $line_item['product_id'] . '#' . $line_item['variation_id'];
 
-						$rate_name       = $tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name;
-						$rate_percentage = $tax_breakdown->tax_rate_details->percentage_decimal;
-						$tax_type        = $tax_breakdown->tax_rate_details->tax_type;
-						$rate_key        = 'stripe_tax_for_woocommerce__' . $tax_type . '__' . $rate_percentage . '__' . $rate_name;
-
-						if ( ! array_key_exists( $rate_key, $new_item_tax_rates ) ) {
-							$new_item_tax_rates[ $rate_key ] = array(
-								'rate'     => (float) $rate_percentage,
-								'label'    => $rate_name,
-								'shipping' => 'no',
-								'compound' => 'no',
-							);
-							$new_total_taxes[ $rate_key ]    = $tax_breakdown->amount / 100;
-						} else {
-							$new_item_tax_rates[ $rate_key ]['rate'] += (float) $rate_percentage;
-							$new_total_taxes[ $rate_key ]            += $tax_breakdown->amount / 100;
-						}
-					}
-				}
-
-				$subtotal_taxes = $new_total_taxes;
-				$subtotal_tax   = array_sum( $subtotal_taxes );
-
-				$wc_cart->cart_contents[ $item_key ]['line_tax_data']     = array( 'subtotal' => wc_remove_number_precision_deep( $subtotal_taxes ) );
-				$wc_cart->cart_contents[ $item_key ]['line_subtotal_tax'] = wc_remove_number_precision( $subtotal_tax );
-			}
+			$line_items[ $key ] = array(
+				'reference'     => $line_item['data']->get_name(),
+				'line_subtotal' => $line_item['line_subtotal'],
+				'line_total'    => $line_item['line_total'],
+			);
 		}
 
-		return $new_total_taxes;
+		$totals          = static::get_totals_from_response( $line_items, $response, true );
+		$cart_line_items = $wc_cart->cart_contents;
+
+		foreach ( $totals['cart_contents'] as $key => $cart_contents_line ) {
+			foreach ( $cart_line_items as $item_key => $cart_item ) {
+				$cart_key = $cart_item['product_id'] . '#' . $cart_item['variation_id'];
+				if ( $cart_key === $key ) {
+					break;
+				}
+			}
+			$wc_cart->cart_contents[ $item_key ]['line_total']        = $cart_contents_line['line_total'];
+			$wc_cart->cart_contents[ $item_key ]['line_subtotal']     = $cart_contents_line['line_subtotal'];
+			$wc_cart->cart_contents[ $item_key ]['line_tax_data']     = $cart_contents_line['line_tax_data'];
+			$wc_cart->cart_contents[ $item_key ]['line_subtotal_tax'] = $cart_contents_line['line_subtotal_tax'];
+			$wc_cart->cart_contents[ $item_key ]['line_tax']          = $cart_contents_line['line_tax'];
+		}
+
+		$wc_cart->set_subtotal( $totals['subtotal'] );
+		$wc_cart->set_cart_contents_total( $totals['cart_contents_total'] );
+		$wc_cart->set_cart_contents_taxes( $totals['cart_contents_taxes'] );
+		$wc_cart->set_cart_contents_tax( $totals['cart_contents_tax'] );
+		$wc_cart->set_subtotal_tax( $totals['subtotal_tax'] );
+		$wc_cart->set_discount_tax( $totals['discount_tax'] );
+
+		$cart_totals = $wc_cart->get_totals();
+
+		$totals['total']     = $cart_totals['total'];
+		$totals['total_tax'] = $cart_totals['total_tax'];
+
+		$cart_hash = $wc_cart->get_cart_hash();
+
+		WC()->session->set( 'stripe_tax_for_woocommerce_cart_taxes_' . $cart_hash, $totals );
 	}
 
 	/**

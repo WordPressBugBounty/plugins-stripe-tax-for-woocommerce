@@ -421,6 +421,11 @@ class CalculateTax {
 		$currency           = strtolower( get_woocommerce_currency() );
 		$line_items         = array();
 		$line_items_counter = 0;
+
+		$order_prices_include_tax_tag = $wc_order->get_prices_include_tax();
+
+		$order_prices_include_tax = ( true === $order_prices_include_tax_tag || 'yes' === $order_prices_include_tax_tag ) || wc_prices_include_tax();
+
 		// In WooCommerce same item (item with the same title/reference) can be added multiple times.
 		// For Stripe API, item title/reference must be unique.
 		// This array used to store item's title/reference and $line_items array index of where this item stored.
@@ -458,8 +463,15 @@ class CalculateTax {
 						$line_items[ $line_items_counter ]['tax_code'] = $stripe_product['tax_code'];
 					}
 
-					$tax_settings                                      = new TaxSettings( Options::get_live_mode_key() );
-					$line_items[ $line_items_counter ]['tax_behavior'] = $tax_settings->get_tax_behavior();
+					$tax_settings = new TaxSettings( Options::get_live_mode_key() );
+
+					if ( ! $order_prices_include_tax ) {
+						$line_items[ $line_items_counter ]['tax_behavior'] = 'exclusive';
+					} elseif ( $item->get_meta( '_stripe_not_subtotal_include_tax' ) === '' ) {
+							$line_items[ $line_items_counter ]['tax_behavior'] = 'inclusive';
+					} else {
+						$line_items[ $line_items_counter ]['tax_behavior'] = 'exclusive';
+					}
 				} else {
 					$line_items[ $line_items_counter ]['original_line_item'] = self::get_original_line_item_id( $reference, $tax_transaction_data );
 					$line_items[ $line_items_counter ]['amount_tax']         = $normalized_tax_amount;
@@ -1199,7 +1211,8 @@ class CalculateTax {
 
 		$shipping_order_item_tax = new StripeOrderItemTax();
 		$shipping_order_item_tax->set_rate( $rate_id );
-		$shipping_order_item_tax->set_tax_total( $denormalized_shipping_tax );
+		$shipping_order_item_tax->set_tax_total( 0 );
+		$shipping_order_item_tax->set_shipping_tax_total( $denormalized_shipping_tax );
 
 		return $shipping_order_item_tax;
 	}
