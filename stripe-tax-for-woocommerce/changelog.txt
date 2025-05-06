@@ -1,4 +1,8 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
+2025-05-06 - version 1.1.13
+* Fixed order shipping item for tax-inclusive prices.
+* Fixed order discount total for tax-inclusive prices.
+
 2025-04-22 - version 1.1.12
 * Fixed tax calculation for tax-inclusive prices.
 

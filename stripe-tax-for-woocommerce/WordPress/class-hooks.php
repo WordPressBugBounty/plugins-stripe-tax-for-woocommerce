@@ -600,6 +600,9 @@ class Hooks {
 			return;
 		}
 
+		$cart_hash = $wc_order->get_cart_hash();
+		WC()->session->set( 'stripe_tax_for_woocommerce_cart_taxes_processed_lock_' . $cart_hash, true );
+
 		static::update_order_custom_tags( $wc_order );
 	}
 
@@ -663,6 +666,12 @@ class Hooks {
 
 			$shipping_cost = CalculateTax::get_taxable_shipping_cost_from_cart_or_order_for_api( $wc_order, $currency );
 
+			if ( CalculateTax::order_prices_include_tax( $wc_order ) ) {
+				if ( CalculateTax::order_shipping_price_include_tax( $wc_order ) ) {
+					$shipping_cost['tax_behavior'] = 'exclusive';
+				}
+			}
+
 			$calculate_tax = new CalculateTax(
 				Options::get_live_mode_key(),
 				$currency,
@@ -700,10 +709,12 @@ class Hooks {
 
 			$cart_hash = $wc_order->get_cart_hash();
 
-			if ( WC()->session ) {
-				$cart_totals = WC()->session->get( 'stripe_tax_for_woocommerce_cart_taxes_' . $cart_hash );
-			} else {
-				$cart_totals = null;
+			$cart_totals = null;
+
+			if ( WC()->session && CalculateTax::order_prices_include_tax( $wc_order ) ) {
+				if ( ! WC()->session->get( 'stripe_tax_for_woocommerce_cart_taxes_processed_lock_' . $cart_hash ) ) {
+					$cart_totals = WC()->session->get( 'stripe_tax_for_woocommerce_cart_taxes_' . $cart_hash );
+				}
 			}
 
 			if ( ! is_array( $cart_totals ) ) {
@@ -810,6 +821,17 @@ class Hooks {
 			$wc_order->update_taxes();
 
 			$order_prices_include_tax_tag = $wc_order->get_prices_include_tax();
+
+			if ( CalculateTax::order_prices_include_tax( $wc_order ) ) {
+				if ( ! CalculateTax::order_shipping_price_include_tax( $wc_order ) ) {
+					$shipping_items = $wc_order->get_items( 'shipping' );
+
+					foreach ( $shipping_items as $shipping_item ) {
+						$shipping_line_total = $shipping_item->get_total() - $shipping_item->get_total_tax();
+						$shipping_item->set_total( $shipping_line_total );
+					}
+				}
+			}
 
 			if ( ( true === $order_prices_include_tax_tag || 'yes' === $order_prices_include_tax_tag ) || wc_prices_include_tax() ) {
 				static::update_order_custom_tags( $wc_order );
@@ -1269,6 +1291,7 @@ class Hooks {
 		$cart_contents       = array();
 		$cart_contents_tax   = 0;
 		$cart_contents_taxes = array();
+		$discount_total      = 0;
 		$discount_tax        = 0;
 
 		foreach ( $line_items as $item_key => $line_item ) {
@@ -1354,7 +1377,8 @@ class Hooks {
 				$subtotal            += $line_subtotal;
 
 				if ( $has_discount ) {
-					$discount_tax += ( $line_subtotal_tax - $line_tax );
+					$discount_total += ( $line_subtotal - $line_total );
+					$discount_tax   += ( $line_subtotal_tax - $line_tax );
 				}
 			}
 		}
@@ -1366,6 +1390,7 @@ class Hooks {
 			'cart_contents_total' => $cart_contents_total,
 			'cart_contents_tax'   => $cart_contents_tax,
 			'subtotal_tax'        => $subtotal_tax,
+			'discount_total'      => $discount_total,
 			'discount_tax'        => $discount_tax,
 		);
 	}
@@ -1411,6 +1436,7 @@ class Hooks {
 		$wc_cart->set_cart_contents_taxes( $totals['cart_contents_taxes'] );
 		$wc_cart->set_cart_contents_tax( $totals['cart_contents_tax'] );
 		$wc_cart->set_subtotal_tax( $totals['subtotal_tax'] );
+		$wc_cart->set_discount_total( $totals['discount_total'] );
 		$wc_cart->set_discount_tax( $totals['discount_tax'] );
 
 		$cart_totals = $wc_cart->get_totals();

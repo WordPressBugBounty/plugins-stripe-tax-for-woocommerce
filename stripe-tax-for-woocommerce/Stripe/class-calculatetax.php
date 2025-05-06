@@ -1315,4 +1315,40 @@ class CalculateTax {
 
 		return $for_api;
 	}
+
+	/**
+	 * Returns true if order prices include taxes.
+	 *
+	 * @param string $wc_order WC_Order the order.
+	 */
+	public static function order_prices_include_tax( $wc_order ) {
+		$order_prices_include_tax_tag = $wc_order->get_prices_include_tax();
+
+		$order_prices_include_tax = ( true === $order_prices_include_tax_tag || 'yes' === $order_prices_include_tax_tag ) || wc_prices_include_tax();
+
+		return $order_prices_include_tax;
+	}
+
+	/**
+	 * Returns true if order prices already include taxes.
+	 *
+	 * @param string $wc_order WC_Order the order.
+	 */
+	public static function order_shipping_price_include_tax( $wc_order ) {
+		if ( ! static::order_prices_include_tax( $wc_order ) ) {
+			return false;
+		}
+
+		$shipping_items = $wc_order->get_items( 'shipping' );
+
+		foreach ( $shipping_items as $shipping_item ) {
+			if ( $shipping_item->get_meta( '_stripe_not_subtotal_include_tax' ) === '' ) {
+				continue;
+			}
+
+			return true;
+		}
+
+		return false;
+	}
 }
