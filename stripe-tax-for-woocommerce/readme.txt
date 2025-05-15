@@ -1,7 +1,7 @@
 === Stripe Tax - Sales tax automation for WooCommerce ===
 Tags: stripe, tax, taxation, shipping
-Stable tag: 1.1.13
-Tested up to: 6.7
+Stable tag: 1.1.14
+Tested up to: 6.8
 Requires at least: 6.3
 Requires PHP: 7.4
 License: Expat

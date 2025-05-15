@@ -984,6 +984,12 @@ class Hooks {
 
 			$shipping_cost = CalculateTax::get_taxable_shipping_cost_from_cart_or_order_for_api( $wc_order, $currency );
 
+			if ( CalculateTax::order_prices_include_tax( $wc_order ) ) {
+				if ( CalculateTax::order_shipping_price_include_tax( $wc_order ) ) {
+					$shipping_cost['tax_behavior'] = 'exclusive';
+				}
+			}
+
 			$calculate_tax = new CalculateTax(
 				Options::get_live_mode_key(),
 				$currency,

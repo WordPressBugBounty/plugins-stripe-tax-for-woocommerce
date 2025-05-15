@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Stripe Tax - Sales tax automation for WooCommerce
  * Description: Automate sales tax, VAT, and GST compliance for all your transactions.
- * Version: 1.1.13
+ * Version: 1.1.14
  * Text Domain: stripe-tax-for-woocommerce
  * Requires at least: 6.3
  * Requires PHP: 7.4
