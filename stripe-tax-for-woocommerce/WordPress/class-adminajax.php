@@ -35,7 +35,7 @@ class AdminAjax {
 			Options::enable_live_mode( false );
 			$data->message = __( 'Disconnection successful. Refreshing page...', 'stripe-tax-for-woocommerce' );
 			wp_send_json_success( $data, 200 );
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			$data->message = $e->getMessage();
 			wp_send_json_error( $data, 200 );
 		}
@@ -73,7 +73,7 @@ class AdminAjax {
 			}
 			$data->message = __( 'Connection successful', 'stripe-tax-for-woocommerce' );
 			wp_send_json_success( $data, 200 );
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			$data->message = $e->getMessage();
 			wp_send_json_error( $data, 200 );
 		}
