@@ -88,7 +88,7 @@ try {
 	$stripe_client           = new StripeClient( $stfwc_live_key );
 	// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 	$response = $stripe_client->taxCodes->all( array( 'limit' => 1 ) );
-} catch ( \Throwable $e ) {
+} catch ( Exception $e ) {
 	WC_Admin_Settings::add_error( $e->getMessage() );
 }
 ?>
@@ -129,7 +129,7 @@ try {
 						class="page-title-action"><?php echo wp_kses( __( 'Connect with', 'stripe-tax-for-woocommerce' ), $html_list ); ?><?php echo wp_kses( $stfwc_filesystem_direct->get_contents( STRIPE_TAX_FOR_WOOCOMMERCE_ASSETS_IMG_DIR . 'connect_with_stripe.svg' ), $svg_tags_list ); ?></a>
 					<?php
 					ErrorRenderer::set_error_object( 'connect_with_stripe', Connect::get_woocommerce_connect_last_error(), 'error' );
-			} catch ( \Throwable $e ) {
+			} catch ( Exception $e ) {
 				ErrorRenderer::set_error_object( 'connect_with_stripe', __( 'Unable to receive Stripe Connect URL. Be sure you\'re not on localhost', 'stripe-tax-for-woocommerce' ), 'error' );
 			}
 			echo wp_kses( ErrorRenderer::get_rendered_error( 'connect_with_stripe' ), $html_list );
@@ -214,7 +214,7 @@ if ( $stfwc_live_key ) :
 		$settings_city        = $stfwc_stripe_tax_settings->get_city();
 		$settings_postal_code = $stfwc_stripe_tax_settings->get_postal_code();
 		$settings_tax_code    = $stfwc_stripe_tax_settings->get_tax_code();
-	} catch ( \Throwable $e ) {
+	} catch ( Exception $e ) {
 		ErrorRenderer::set_error_object( 'get_tax_settings', $e->getMessage(), 'error' );
 		echo wp_kses( ErrorRenderer::get_rendered_error( 'get_tax_settings' ), $html_list );
 	}
@@ -568,7 +568,7 @@ if ( $stfwc_live_key ) :
 
 				$tax_registrations_list_table->display();
 
-			} catch ( \Throwable $e ) {
+			} catch ( Exception $e ) {
 				$stripe_tax_error_message = 'Error fetching tax registrations: ' . $e->getMessage();
 			}
 

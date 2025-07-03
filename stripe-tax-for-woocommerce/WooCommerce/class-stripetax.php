@@ -502,7 +502,7 @@ class StripeTax extends WC_Settings_Page {
 		if ( isset( $_GET['add_tax_registration'] ) ) {
 			try {
 				static::stripe_tax_for_woocommerce_add_tax_registrations();
-			} catch ( \Throwable $e ) {
+			} catch ( Exception $e ) {
 				ErrorRenderer::set_error_object( 'add_tax_registration', $e->getMessage(), 'error' );
 			}
 
@@ -527,7 +527,7 @@ class StripeTax extends WC_Settings_Page {
 			$posted_tax_settings = $tax_settings::get_from_post_request( true );
 
 			$tax_settings->set_settings( $posted_tax_settings );
-		} catch ( \Throwable $e ) {
+		} catch ( Exception $e ) {
 			\WC_Admin_Settings::add_error( $e->getMessage() );
 		}
 	}

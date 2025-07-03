@@ -463,7 +463,7 @@ add_action(
 				$tax_registrations_list_table->set_api_key( $stripe_tax_for_woocommerce_key );
 				$tax_registrations_list_table->prepare_items();
 				$tax_registrations_list_table->display();
-			} catch ( \Throwable $e ) {
+			} catch ( Exception $e ) {
 				\WC_Admin_Settings::add_error( $e->getMessage() );
 			}
 

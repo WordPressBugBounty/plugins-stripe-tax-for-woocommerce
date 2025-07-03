@@ -1,11 +1,4 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
-2025-07-02 - version 1.2.1
-* Fixed missing file error.
-
-2025-07-02 - version 1.2.0
-* Added extra checks to better determine the origin of tax calculation triggers.
-* Hid the options for displaying prices in the shop.
-
 2025-05-15 - version 1.1.14
 * Fixed shipping tax total in Stripe Dashboard.
 
