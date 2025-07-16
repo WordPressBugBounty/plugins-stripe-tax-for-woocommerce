@@ -297,10 +297,10 @@ class CalculateTax {
 	public static function get_customer_details_by_post(): array {
 		try {
 			return static::get_customer_details_address();
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			try {
 				return static::get_customer_details_address( true );
-			} catch ( Exception $e ) {
+			} catch ( \Throwable $e ) {
 				return array();
 			}
 		}

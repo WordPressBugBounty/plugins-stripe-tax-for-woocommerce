@@ -154,7 +154,7 @@ class TaxRegistrations {
 		$data                      = array( 'expires_at' => 'now' );
 		try {
 			$tax_registrations_service->update( $tax_registration_id, $data );
-		} catch ( Exception $exception ) {
+		} catch ( \Throwable $exception ) {
 			\WC_Admin_Settings::add_error( __( 'Some wrong, try again later.', 'stripe-tax-for-woocommerce' ) );
 		}
 		$this->get_registrations( true );

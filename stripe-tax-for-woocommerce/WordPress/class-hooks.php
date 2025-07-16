@@ -19,6 +19,7 @@ use Stripe\StripeTaxForWooCommerce\SDK\lib\StripeClient;
 use Stripe\StripeTaxForWooCommerce\Stripe\CalculateTax;
 use Stripe\StripeTaxForWooCommerce\Stripe\Exception\CountryStateException;
 use Stripe\StripeTaxForWooCommerce\Stripe\Exception\CountrySupportException;
+use Stripe\StripeTaxForWooCommerce\Stripe\StripeCalculationTracker;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxCodeList;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxExemptions;
@@ -173,7 +174,7 @@ class Hooks {
 				$locks                                      = $tax_registrations->get_locks();
 				$localize_script['tax_registrations_locks'] = $locks;
 				// phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
-			} catch ( Exception $e ) {
+			} catch ( \Throwable $e ) {
 				$stripe_tax_error_message = 'Error fetching tax registrations: ' . $e->getMessage();
 			}
 			wp_localize_script( 'stripe_tax_for_woocommerce_admin', 'stripe_tax_for_woocommerce', $localize_script );
@@ -258,7 +259,7 @@ class Hooks {
 					$secret_key = Connect::get_stripe_oauth_keys( $wcs_stripe_code, $wcs_stripe_state );
 					Options::update_option( Options::OPTION_LIVE_MODE_SECRET_KEY, $secret_key );
 					Connect::set_woocommerce_connect_last_error( __( 'Connect with Stripe successful', 'stripe-tax-for-woocommerce' ) );
-				} catch ( Exception $e ) {
+				} catch ( \Throwable $e ) {
 					Connect::set_woocommerce_connect_last_error( $e->getMessage() );
 				}
 				wp_safe_redirect( admin_url( 'admin.php?page=wc-settings&tab=stripe_tax_for_woocommerce' ) );
@@ -299,7 +300,7 @@ class Hooks {
 					'description' => __( 'Choose a stripe tax code for this product.', 'stripe-tax-for-woocommerce' ),
 				)
 			);
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			ErrorRenderer::set_error_object( 'product_tax_code_retrieve_error', esc_html( 'Stripe Tax: ' . $e->getMessage() ), 'error' );
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			echo esc_html( ErrorRenderer::get_rendered_error( 'product_tax_code_retrieve_error' ) );
@@ -491,6 +492,20 @@ class Hooks {
 			100,
 			3
 		);
+		add_action(
+			'update_option_woocommerce_prices_include_tax',
+			function ( $old_value, $value ) {
+				if ( 'yes' === $value ) {
+					update_option( 'woocommerce_tax_display_shop', 'incl' );
+					update_option( 'woocommerce_tax_display_cart', 'incl' );
+				} else {
+					update_option( 'woocommerce_tax_display_shop', 'excl' );
+					update_option( 'woocommerce_tax_display_cart', 'excl' );
+				}
+			},
+			10,
+			2
+		);
 	}
 
 	/**
@@ -581,6 +596,25 @@ class Hooks {
 			10,
 			2
 		);
+		add_filter(
+			'woocommerce_tax_settings',
+			function ( $settings ) {
+				return array_filter(
+					$settings,
+					function ( $setting ) {
+						if ( array_key_exists( 'id', $setting ) && in_array( $setting['id'], array( 'woocommerce_tax_display_shop', 'woocommerce_tax_display_cart' ), true ) ) {
+							return false;
+						}
+
+						if ( array_key_exists( 'type', $setting ) && 'conflict_error' === $setting['type'] ) {
+							return false;
+						}
+
+						return true;
+					}
+				);
+			}
+		);
 	}
 
 	/**
@@ -635,7 +669,7 @@ class Hooks {
 	 * @throws Exception If something goes wrong.
 	 */
 	public static function action_calculate_totals( $and_taxes, $wc_order ) {
-		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() ) {
+		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() || ! StripeCalculationTracker::is_calculation_needed() ) {
 			return $and_taxes;
 		}
 
@@ -648,7 +682,7 @@ class Hooks {
 		if ( empty( $customer_details ) ) {
 			$customer_details = CalculateTax::get_customer_details_by_order( $wc_order );
 		}
-		if ( empty( $customer_details ) || ( ! is_admin() && ! CalculateTax::can_calculate_tax( $customer_details ) ) ) {
+		if ( ( ! is_admin() && ! CalculateTax::can_calculate_tax( $customer_details ) ) ) {
 			return $and_taxes;
 		}
 
@@ -839,7 +873,7 @@ class Hooks {
 
 			$wc_order->save();
 
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			static::handle_calculate_tax_error( $e );
 		}
 
@@ -959,7 +993,7 @@ class Hooks {
 		 * @var \WC_Order $wc_order
 		 */
 
-		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() ) {
+		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() || apply_filters( 'stripe_tax_skip_calculation_and_transaction_on_order_status_change', false, $order_id, $status_from, $status_to, $wc_order ) ) {
 			return;
 		}
 
@@ -978,6 +1012,10 @@ class Hooks {
 			$customer_details = CalculateTax::get_customer_details_by_post();
 			if ( ! $customer_details ) {
 				$customer_details = CalculateTax::get_customer_details_by_order( $wc_order );
+			}
+
+			if ( ! CalculateTax::can_calculate_tax( $customer_details ) ) {
+				return;
 			}
 
 			$customer_details['taxability_override'] = CalculateTax::get_order_tax_exempt( $wc_order );
@@ -1003,7 +1041,7 @@ class Hooks {
 			$tax_transaction = static::get_tax_transaction();
 			$tax_transaction->create( $response, $order_id );
 			$calculate_tax->delete();
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			$message_id = 'calculate_tax_error';
 			if ( $e instanceof CountrySupportException ) {
 				$message_id = 'setting_country_error';
@@ -1138,7 +1176,7 @@ class Hooks {
 	 * @param \WC_Cart $wc_cart WooCommerce Cart object.
 	 */
 	public static function action_woocommerce_after_calculate_totals( \WC_Cart $wc_cart ) {
-		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() ) {
+		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() || ! StripeCalculationTracker::is_calculation_needed() ) {
 			return;
 		}
 
@@ -1180,7 +1218,7 @@ class Hooks {
 			}
 
 			return;
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return;
 		}
 	}
@@ -1241,6 +1279,7 @@ class Hooks {
 
 			$this->add_actions();
 			static::add_filters();
+			StripeCalculationTracker::init();
 		}
 	}
 
