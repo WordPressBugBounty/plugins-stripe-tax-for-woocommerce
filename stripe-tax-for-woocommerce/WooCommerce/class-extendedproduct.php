@@ -127,6 +127,16 @@ class ExtendedProduct {
 	protected function get_from_db( $id = null ) {
 		global $wpdb;
 
+		$product_id = $id ?? $this->product_id;
+
+		if ( 'product_variation' === (string) get_post_type( $product_id ) ) {
+			$variation_tax_class = (string) get_post_meta( $product_id, '_tax_class', true );
+
+			if ( '' === $variation_tax_class || 'parent' === $variation_tax_class ) {
+				$product_id = (int) wp_get_post_parent_id( $product_id );
+			}
+		}
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 		$result = $wpdb->get_row(
 			$wpdb->prepare(
@@ -135,7 +145,7 @@ class ExtendedProduct {
 					'tax_code',
 					static::TABLE_NAME,
 					'product_id',
-					$id ?? $this->product_id,
+					$product_id,
 				)
 			),
 			ARRAY_A

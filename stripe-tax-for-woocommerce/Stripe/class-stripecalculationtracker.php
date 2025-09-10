@@ -35,7 +35,7 @@ class StripeCalculationTracker {
 				$requests = $request->get_param( 'requests' );
 				if ( ! empty( $requests ) ) {
 					$data = reset( $requests );
-					if ( array_key_exists( 'path', $data ) && str_contains( $data['path'], 'cart' ) ) {
+					if ( array_key_exists( 'path', $data ) && strpos( $data['path'], 'cart' ) !== false ) {
 						self::$should_calculate = true;
 					}
 				}
@@ -58,6 +58,35 @@ class StripeCalculationTracker {
 	}
 
 	/**
+	 * REST API endpoints that should always allow a Stripe tax calculation.
+	 *
+	 * @var string[]
+	 */
+	public static $valid_rest_urls = array(
+		// WooCommerce core REST endpoints commonly used by the mobile app.
+		'/wp-json/wc/v3/orders',
+		'/wp-json/wc/v2/orders',
+		'/wp-json/wc/v1/orders',
+		'/wc/v3/orders',
+		'/wc/v2/orders',
+		'/wc/v1/orders',
+
+		// Store API (Cart/Checkout) endpoints.
+		'/wp-json/wc/store/v1/checkout',
+		'/wp-json/wc/store/v1/cart',
+	);
+
+	/**
+	 * Get the allow-listed REST endpoints (filterable).
+	 *
+	 * @return string[]
+	 */
+	public static function get_valid_rest_urls(): array {
+		$urls = apply_filters( 'stripe_tax_valid_rest_urls', self::$valid_rest_urls );
+		return is_array( $urls ) ? $urls : array();
+	}
+
+	/**
 	 * Check if a calculation is needed.
 	 *
 	 * @return bool
@@ -72,15 +101,12 @@ class StripeCalculationTracker {
 				return true;
 			}
 
-			if (
-				defined( 'REST_REQUEST' ) && REST_REQUEST &&
-				isset( $_SERVER['REQUEST_URI'] ) &&
-				(
-					str_contains( sanitize_url( wp_unslash( $_SERVER['REQUEST_URI'] ) ), '/wp-json/wc/store/v1/checkout' ) ||
-					str_contains( sanitize_url( wp_unslash( $_SERVER['REQUEST_URI'] ) ), '/wp-json/wc/store/v1/cart' )
-				)
-			) {
-				return true;
+			if ( defined( 'REST_REQUEST' ) && REST_REQUEST && isset( $_SERVER['REQUEST_URI'] ) ) {
+				foreach ( self::$valid_rest_urls as $valid_rest_url ) {
+					if ( strpos( sanitize_url( wp_unslash( $_SERVER['REQUEST_URI'] ) ), $valid_rest_url ) !== false ) {
+						return true;
+					}
+				}
 			}
 
 			$cart_page_id     = wc_get_page_id( 'cart' );
@@ -93,13 +119,13 @@ class StripeCalculationTracker {
 				$request   = wp_parse_url( sanitize_url( wp_unslash( $_SERVER['REQUEST_URI'] ) ), PHP_URL_PATH );
 				$cart_url  = get_permalink( $cart_page_id );
 				$cart_path = wp_parse_url( $cart_url, PHP_URL_PATH );
-				if ( $cart_path && str_contains( $request, $cart_path ) ) {
+				if ( $cart_path && strpos( $request, $cart_path ) !== false ) {
 					return true;
 				}
 
 				$checkout_url  = get_permalink( $checkout_page_id );
 				$checkout_path = wp_parse_url( $checkout_url, PHP_URL_PATH );
-				if ( $checkout_path && str_contains( $request, $checkout_path ) ) {
+				if ( $checkout_path && strpos( $request, $checkout_path ) !== false ) {
 					return true;
 				}
 			}
@@ -116,8 +142,8 @@ class StripeCalculationTracker {
 				if (
 					has_shortcode( $post->post_content, 'woocommerce_cart' ) ||
 					has_shortcode( $post->post_content, 'woocommerce_checkout' ) ||
-					str_contains( $post->post_content, 'wp:woocommerce/cart' ) ||
-					str_contains( $post->post_content, 'wp:woocommerce/checkout' )
+					strpos( $post->post_content, 'wp:woocommerce/cart' ) !== false ||
+					strpos( $post->post_content, 'wp:woocommerce/checkout' ) !== false
 				) {
 					return true;
 				}

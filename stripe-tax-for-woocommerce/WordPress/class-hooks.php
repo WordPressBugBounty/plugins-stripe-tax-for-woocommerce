@@ -26,12 +26,15 @@ use Stripe\StripeTaxForWooCommerce\Stripe\TaxExemptions;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxRegistrations;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxSettings;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxTransaction;
+use Stripe\StripeTaxForWooCommerce\Stripe\TaxTransactionReversal;
+use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxLogger;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\Connect;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\ErrorRenderer;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\ExtendedProduct;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeOrderItemTax;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTax;
 use WC_Data;
+use WP_CLI;
 
 /**
  * Class for adding WordPress actions, filter, registering styles and scripts
@@ -618,6 +621,17 @@ class Hooks {
 	}
 
 	/**
+	 * Register wp cli commands.
+	 */
+	protected static function register_commands() {
+		if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
+			return;
+		}
+
+		WP_CLI::add_command( 'stripe-tax-transaction-reverse', TaxTransactionReversal::class );
+	}
+
+	/**
 	 * Using this to ignore Woocommerce rates to be displayed in shop.
 	 */
 	public static function filter_woocommerce_find_rates() {
@@ -944,26 +958,11 @@ class Hooks {
 	 * @throws Exception If something goes wrong.
 	 */
 	public static function action_woocommerce_order_partially_refunded( $order_id, $refund_id ) {
-		$refund               = new \WC_Order_Refund( $refund_id );
-		$tax_transaction      = static::get_tax_transaction();
-		$tax_transaction_data = $tax_transaction->get( $order_id )->tax_transaction;
-		$line_items           = CalculateTax::get_line_items_by_order( $refund, true, $tax_transaction_data );
-
-		$currency = strtolower( get_woocommerce_currency() );
-
-		$shipping_total = (float) $refund->get_shipping_total( 'edit' );
-		$shipping_tax   = (float) $refund->get_shipping_tax( 'edit' );
-
-		$shipping_cost = array();
-
-		if ( $shipping_total < 0.0 || $shipping_tax < 0.0 ) {
-			$shipping_cost = array(
-				'amount'     => CalculateTax::get_normalized_amount( $shipping_total, $currency ),
-				'amount_tax' => CalculateTax::get_normalized_amount( $shipping_tax, $currency ),
-			);
+		try {
+			TaxTransaction::create_order_refund_reversal( $refund_id );
+		} catch ( \Throwable $err ) {
+			StripeTaxLogger::log_error( $err->getMessage() );
 		}
-
-		$tax_transaction->create_reversal( $order_id, $line_items, $shipping_cost );
 	}
 
 	/**
@@ -974,8 +973,11 @@ class Hooks {
 	 * @throws ApiErrorException In case of API error.
 	 */
 	public static function action_woocommerce_order_fully_refunded( $order_id ) {
-		$tax_transaction = static::get_tax_transaction();
-		$tax_transaction->create_reversal( $order_id );
+		try {
+			TaxTransaction::reverse_order_last_transaction( $order_id );
+		} catch ( \Throwable $err ) {
+			StripeTaxLogger::log_error( $err->getMessage() );
+		}
 	}
 
 	/**
@@ -1038,8 +1040,7 @@ class Hooks {
 
 			$response = $calculate_tax->get_response();
 
-			$tax_transaction = static::get_tax_transaction();
-			$tax_transaction->create( $response, $order_id );
+			TaxTransaction::create_order_transaction( $order_id, $response );
 			$calculate_tax->delete();
 		} catch ( \Throwable $e ) {
 			$message_id = 'calculate_tax_error';
@@ -1055,6 +1056,8 @@ class Hooks {
 				ErrorRenderer::set_error_object( $message_id, 'Stripe Tax: ' . $e->getMessage(), 'error' );
 				echo wp_kses( ErrorRenderer::get_rendered_error( $message_id ), StripeTaxPluginHelper::get_admin_allowed_html() );
 			}
+
+			StripeTaxLogger::log_error( $err );
 		}
 	}
 
@@ -1279,7 +1282,10 @@ class Hooks {
 
 			$this->add_actions();
 			static::add_filters();
+			static::register_commands();
 			StripeCalculationTracker::init();
+
+			static::check_migrations();
 		}
 	}
 
@@ -1308,6 +1314,18 @@ class Hooks {
 		}
 
 		return ! empty( Options::get_live_mode_key() );
+	}
+
+	/**
+	 * Check if migrations needed.
+	 */
+	public static function check_migrations() {
+		$plugin_migration = get_option( 'stripe_tax_migration' );
+
+		if ( '1' !== $plugin_migration ) {
+			PluginActivate::maybe_migrate_tax_transactions_table();
+			update_option( 'stripe_tax_migration', '1' );
+		}
 	}
 
 	/**

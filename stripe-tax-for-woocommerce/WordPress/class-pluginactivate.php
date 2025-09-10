@@ -10,6 +10,8 @@ namespace Stripe\StripeTaxForWooCommerce\WordPress;
 // Exit if script started not from WordPress.
 defined( 'ABSPATH' ) || exit;
 
+use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxLogger;
+
 /**
  * Class for each function needs to be called on plugin activate event
  */
@@ -192,15 +194,57 @@ class PluginActivate {
 		$wpdb->query(
 			$wpdb->prepare(
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
-				'CREATE TABLE %i (%i BIGINT UNSIGNED NOT NULL PRIMARY KEY, %i LONGTEXT NOT NULL, %i LONGTEXT NOT NULL)',
+				'CREATE TABLE %i (%i BIGINT UNSIGNED NOT NULL, %i LONGTEXT NOT NULL, %i LONGTEXT NOT NULL, INDEX idx_order_id (%i))',
 				array(
 					$table_name,
 					'order_id',
 					'tax_calculation',
 					'tax_transaction',
+					'order_id',
 				)
 			)
 		);
+	}
+
+	/**
+	 * `tax_transactions` table migration check.
+	 */
+	public static function maybe_migrate_tax_transactions_table() {
+		global $wpdb;
+
+		if ( ! $wpdb ) {
+			return;
+		}
+
+		$table_name = STRIPE_TAX_FOR_WOOCOMMERCE_DB_PREFIX . 'tax_transactions';
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$pk_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) 
+				FROM INFORMATION_SCHEMA.STATISTICS
+				WHERE TABLE_SCHEMA = DATABASE()
+				AND TABLE_NAME = %s
+				AND INDEX_NAME = 'PRIMARY'
+				AND COLUMN_NAME = 'order_id'",
+				array( $table_name )
+			)
+		);
+
+		if ( intval( $pk_exists ) === 0 ) {
+			return;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$res = $wpdb->query(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange
+				'ALTER TABLE %i DROP PRIMARY KEY, ADD INDEX `idx_order_id` (`order_id`)',
+				array( $table_name )
+			)
+		);
+		if ( false === $res ) {
+			StripeTaxLogger::log_error( $wpdb->last_error );
+		}
 	}
 
 	/**
