@@ -15,6 +15,8 @@ use Stripe\StripeTaxForWooCommerce\SDK\lib\Tax\Calculation;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\ExtendedProduct;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeOrderItemTax;
 use Stripe\StripeTaxForWooCommerce\WordPress\Options;
+use Stripe\StripeTaxForWooCommerce\WooCommerce\TaxRate;
+use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTaxTaxRateMemRepo;
 use WC_Order_Item;
 
 /**
@@ -850,7 +852,14 @@ class CalculateTax {
 					$rate_name       = $tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name;
 					$rate_percentage = $tax_breakdown->tax_rate_details->percentage_decimal;
 					$tax_type        = $tax_breakdown->tax_rate_details->tax_type;
-					$rate_key        = 'stripe_tax_for_woocommerce__' . $tax_type . '__' . $rate_percentage . '__' . $rate_name;
+					// $rate_key        = 'stripe_tax_for_woocommerce__' . $tax_type . '__' . $rate_percentage . '__' . $rate_name;
+
+					$rate_key = StripeTaxTaxRateMemRepo::find_or_create(
+						$tax_breakdown->jurisdiction->country,
+						$tax_breakdown->jurisdiction->state,
+						(float) $tax_breakdown->tax_rate_details->percentage_decimal,
+						$tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name
+					);
 
 					if ( ! array_key_exists( $rate_key, $new_item_tax_rates ) ) {
 						$new_item_tax_rates[ $rate_key ] = array(
@@ -1175,7 +1184,12 @@ class CalculateTax {
 			$percentage_decimal = (float) $shipping_tax / (float) $shipping_amount * 100.0;
 		}
 
-		$rate_id = 'stripe_tax_for_woocommerce__shipping_tax__' . $percentage_decimal . '__Shipping Tax';
+		$rate_id = StripeTaxTaxRateMemRepo::find_or_create(
+			'',
+			'',
+			(float) $percentage_decimal,
+			'Shipping Tax'
+		);
 
 		$shipping_cart_item_tax = array( $rate_id => $denormalized_shipping_tax );
 
@@ -1207,7 +1221,12 @@ class CalculateTax {
 			$percentage_decimal = (float) $shipping_tax / (float) $shipping_amount * 100.0;
 		}
 
-		$rate_id = 'stripe_tax_for_woocommerce__shipping_tax__' . $percentage_decimal . '__Shipping Tax';
+		$rate_id = StripeTaxTaxRateMemRepo::find_or_create(
+			'',
+			'',
+			(float) $percentage_decimal,
+			'Shipping Tax'
+		);
 
 		$shipping_order_item_tax = new StripeOrderItemTax();
 		$shipping_order_item_tax->set_rate( $rate_id );
@@ -1242,7 +1261,12 @@ class CalculateTax {
 			$percentage_decimal = (float) $shipping_tax / (float) $shipping_amount * 100.0;
 		}
 
-		$rate_id = 'stripe_tax_for_woocommerce__shipping_tax__' . $percentage_decimal . '__Shipping Tax';
+		$rate_id = StripeTaxTaxRateMemRepo::find_or_create(
+			'',
+			'',
+			(float) $percentage_decimal,
+			'Shipping Tax'
+		);
 
 		return array( 'total' => array( $rate_id => $denormalized_shipping_tax ) );
 	}

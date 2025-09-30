@@ -35,6 +35,9 @@ use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeOrderItemTax;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTax;
 use WC_Data;
 use WP_CLI;
+use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTaxTaxRateMemRepo;
+use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTaxTaxRateHooks;
+use Stripe\StripeTaxForWooCommerce\WordPress\StringTaxRateIdFixerScheduledAction;
 
 /**
  * Class for adding WordPress actions, filter, registering styles and scripts
@@ -537,9 +540,7 @@ class Hooks {
 			100,
 			1
 		);
-		add_filter( 'woocommerce_rate_code', array( static::class, 'filter_woocommerce_rate_code' ), 5, 2 );
-		add_filter( 'woocommerce_rate_label', array( static::class, 'filter_woocommerce_rate_label' ), 5, 2 );
-		add_filter( 'woocommerce_rate_compound', array( static::class, 'filter_woocommerce_rate_compound' ), 5, 2 );
+
 		add_filter(
 			'woocommerce_get_order_item_classname',
 			array(
@@ -618,6 +619,8 @@ class Hooks {
 				);
 			}
 		);
+
+		StripeTaxTaxRateHooks::register();
 	}
 
 	/**
@@ -1115,48 +1118,6 @@ class Hooks {
 	}
 
 	/**
-	 * Filter the WooCommerce tax rate code.
-	 *
-	 * @param string $code_string Code.
-	 * @param string $key The key.
-	 */
-	public static function filter_woocommerce_rate_code( $code_string, $key ) {
-		if ( strpos( $key, 'stripe_tax_for_woocommerce' ) === 0 ) {
-			return $key;
-		}
-
-		return $code_string;
-	}
-
-	/**
-	 * Filter for the WooCommerce rate label.
-	 *
-	 * @param string $rate_name Rate name.
-	 * @param string $key The key.
-	 */
-	public static function filter_woocommerce_rate_label( $rate_name, $key ) {
-		if ( strpos( $key, 'stripe_tax_for_woocommerce' ) === 0 ) {
-			return explode( '__', $key )[3];
-		}
-
-		return $rate_name;
-	}
-
-	/**
-	 * Filter WooCommerce rate compound.
-	 *
-	 * @param bool   $compound The compound.
-	 * @param string $key The key.
-	 */
-	public static function filter_woocommerce_rate_compound( $compound, $key ) {
-		if ( strpos( $key, 'stripe_tax_for_woocommerce' ) === 0 ) {
-			return false;
-		}
-
-		return $compound;
-	}
-
-	/**
 	 * Replace WooCommerce Order Item Tax class to ours StripeOrderItemTax class
 	 *
 	 * @param class-string $classname The classname.
@@ -1286,6 +1247,7 @@ class Hooks {
 			StripeCalculationTracker::init();
 
 			static::check_migrations();
+			static::check_string_tax_rate_id_fixer();
 		}
 	}
 
@@ -1326,6 +1288,13 @@ class Hooks {
 			PluginActivate::maybe_migrate_tax_transactions_table();
 			update_option( 'stripe_tax_migration', '1' );
 		}
+	}
+
+	/**
+	 * Starts string tax rate ids fixer if needed
+	 */
+	public static function check_string_tax_rate_id_fixer() {
+		StringTaxRateIdFixerScheduledAction::register();
 	}
 
 	/**
@@ -1385,7 +1354,13 @@ class Hooks {
 					$rate_name       = $tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name;
 					$rate_percentage = $tax_breakdown->tax_rate_details->percentage_decimal;
 					$tax_type        = $tax_breakdown->tax_rate_details->tax_type;
-					$rate_key        = 'stripe_tax_for_woocommerce__' . $tax_type . '__' . $rate_percentage . '__' . $rate_name;
+
+					$rate_key = StripeTaxTaxRateMemRepo::find_or_create(
+						$tax_breakdown->jurisdiction->country,
+						$tax_breakdown->jurisdiction->state,
+						(float) $tax_breakdown->tax_rate_details->percentage_decimal,
+						$tax_breakdown->jurisdiction->display_name . ' ' . $tax_breakdown->tax_rate_details->display_name
+					);
 
 					if ( ! array_key_exists( $rate_key, $cart_contents_taxes ) ) {
 						$cart_contents_taxes[ $rate_key ] = 0;

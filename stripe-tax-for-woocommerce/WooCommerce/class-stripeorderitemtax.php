@@ -16,47 +16,117 @@ defined( 'ABSPATH' ) || exit;
 class StripeOrderItemTax extends \WC_Order_Item_Tax {
 
 	/**
-	 * Determines if passed options names(rate_id/rate) belongs to Stripe Tax plugin.
+	 * Creates a tax item given a rate id
 	 *
-	 * @param string $str Processing string.
+	 * @param int $rate_id Rate id.
 	 */
-	protected function stripe_tax_for_woocommerce_is_stripe( $str ): bool {
-		if ( is_string( $str ) && strpos( $str, 'stripe_tax_for_woocommerce_' ) === 0 ) {
-			return true;
-		}
+	public static function from_rate_id( $rate_id ) {
+		$item = new static();
 
-		return false;
+		$item->set_rate_id( $rate_id );
+
+		return $item;
 	}
 
 	/**
-	 * Sets the WooCommerce Tax rate ID.
+	 * Sets tax rate properties
 	 *
-	 * @param string $value Rate id value.
+	 * @param array $tax_rate Rate properties.
 	 */
-	public function set_rate_id( $value ) {
-		if ( $this->stripe_tax_for_woocommerce_is_stripe( $value ) ) {
-			$this->set_prop( 'rate_id', $value );
-
+	protected function set_rate_properties( $tax_rate ) {
+		if ( ! $tax_rate ) {
 			return;
 		}
-		parent::set_rate_id( $value );
+
+		$rate = array(
+			'rate_id'      => $tax_rate['id'],
+			'label'        => $tax_rate['name'],
+			'rate_code'    => $tax_rate->get_code(),
+			'rate_percent' => $tax_rate['rate'],
+		);
+
+		$props   = array( 'rate_id', 'label', 'rate_code', 'rate_percent' );
+		$changed = false;
+
+		foreach ( $props as $prop_name ) {
+			if ( $rate[ $prop_name ] === $this->get_prop( $prop_name ) ) {
+				continue;
+			}
+
+			$changed = true;
+			break;
+		}
+
+		if ( ! $changed ) {
+			return;
+		}
+
+		$current_object_read = $this->get_object_read();
+
+		if ( ! $current_object_read ) {
+			$this->set_object_read( true );
+		}
+
+		$this->set_prop( 'rate_id', $rate['rate_id'] );
+		$this->set_prop( 'label', $rate['label'] );
+		$this->set_prop( 'rate_code', $rate['rate_code'] );
+		$this->set_prop( 'rate_percent', $rate['rate_percent'] );
+
+		$result = $this->save();
+
+		$this->set_object_read( $current_object_read );
 	}
 
 	/**
-	 * Set all needed Woocommerce tax rate parameters.
+	 * Sets tax rate properties given its rate id
 	 *
-	 * @param string $tax_rate_id Tax rate id.
+	 * @param int $rate_id Rate id.
 	 */
-	public function set_rate( $tax_rate_id ) {
-		if ( $this->stripe_tax_for_woocommerce_is_stripe( $tax_rate_id ) ) {
-			$this->set_rate_id( $tax_rate_id );
-			$this->set_rate_code( $tax_rate_id );
-			$this->set_label( explode( '__', $tax_rate_id )[3] );
-			$this->set_compound( false );
-			$this->set_rate_percent( (float) ( explode( '__', $tax_rate_id )[2] ) );
+	public function set_rate( $rate_id ) {
+		$rate = StripeTaxTaxRateMemRepo::read( $rate_id );
 
+		if ( ! $rate ) {
 			return;
 		}
-		parent::set_rate( $tax_rate_id );
+
+		$this->set_rate_properties( $rate );
+	}
+
+	/**
+	 * Sets tax rate properties given its rate id
+	 *
+	 * @param int $rate_id Rate id.
+	 */
+	public function set_rate_id( $rate_id ) {
+		$rate = StripeTaxTaxRateMemRepo::read( $rate_id );
+
+		if ( $rate ) {
+			$this->set_rate_properties( $rate );
+		} else {
+			parent::set_rate_id( $rate_id );
+		}
+	}
+
+	/**
+	 * Sets tax rate properties given its code
+	 *
+	 * @param string $rate_code Rate id.
+	 */
+	public function set_rate_code( $rate_code ) {
+		$rate = StripeTaxTaxRateMemRepo::read_by_code( $rate_code );
+
+		if ( $rate ) {
+			$this->set_rate_properties( $rate );
+		} else {
+			parent::set_rate_code( $rate_code );
+		}
+	}
+
+	/**
+	 * Avoid explcit rate label setting
+	 *
+	 * @param int $rate_id Rate id.
+	 */
+	public function set_rate_label( $rate_id ) {
 	}
 }

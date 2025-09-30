@@ -71,6 +71,11 @@ class StripeCalculationTracker {
 		'/wc/v2/orders',
 		'/wc/v1/orders',
 
+		// Jetpack Tunnel endpoints for WordPress.com authentication.
+		'/?rest_route=%2Fwc%2Fv3%2Forders',
+		'/?rest_route=%2Fwc%2Fv2%2Forders',
+		'/?rest_route=%2Fwc%2Fv1%2Forders',
+
 		// Store API (Cart/Checkout) endpoints.
 		'/wp-json/wc/store/v1/checkout',
 		'/wp-json/wc/store/v1/cart',
