@@ -11,6 +11,7 @@ defined( 'ABSPATH' ) || exit;
 
 use Stripe\StripeTaxForWooCommerce\StripeTax_Options;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxLogger;
+use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Throwable;
 /**
  * Base class for hook handlers.
@@ -19,6 +20,13 @@ abstract class Hook_Handlers {
 	const ACTIONS            = array();
 	const FILTERS            = array();
 	const ACTIVATION_OPTIONS = array();
+
+	/**
+	 * Whether the current request has failed.
+	 *
+	 * @var bool
+	 */
+	protected static $current_request_failed = false;
 
 	/**
 	 * Register action and filter hook handlers
@@ -76,8 +84,8 @@ abstract class Hook_Handlers {
 	/**
 	 * Shows if handles should be enabled
 	 */
-	protected static function is_enabled() {
-		if ( ! Options::is_live_mode_enabled() || ! wc_tax_enabled() ) {
+	public static function is_enabled() {
+		if ( ! Options::is_live_mode_enabled() || self::is_current_request_failed() || ! wc_tax_enabled() ) {
 			return false;
 		}
 		return true;
@@ -92,7 +100,8 @@ abstract class Hook_Handlers {
 		StripeTaxLogger::log_info( $err->getMessage() );
 
 		if ( is_admin() ) {
-			static::show_admin_error( $err );
+			$message = StripeTaxPluginHelper::format_api_error_message( $err );
+			static::show_admin_error( $message );
 		}
 	}
 
@@ -131,10 +140,9 @@ abstract class Hook_Handlers {
 			return;
 		}
 
-		echo '<span class="stripe_tax_for_woocommerce_message_span_id_" id="stripe_tax_for_woocommerce_message_id_"> </span>'
-			. '<div class="stripe_tax_for_woocommerce_message stripe_tax_for_woocommerce_message_" id="stripe_tax_for_woocommerce_message_id_">'
-			. '<p>Err: <strong>' . ( esc_html( $err->getMessage() ) ) . '</strong></p>'
-			. '</div>';
+		echo '<div class="notice notice-error"><p><strong>'
+			. esc_html__( 'Stripe Tax:', 'stripe-tax-for-woocommerce' )
+			. '</strong> ' . esc_html( $message ) . '</p></div>';
 	}
 
 	/**
@@ -146,7 +154,34 @@ abstract class Hook_Handlers {
 		StripeTaxLogger::log_error( $err->getMessage() );
 
 		if ( is_admin() ) {
-			static::show_admin_error( $err );
+			$message = StripeTaxPluginHelper::format_api_error_message( $err );
+			static::show_admin_error( $message );
 		}
+	}
+
+	/**
+	 * Sets the failure state for the current request.
+	 *
+	 * This flag is used to track whether tax calculation failed during
+	 * the current checkout request.
+	 *
+	 * @param bool $status True to mark the current request as failed.
+	 *
+	 * @return void
+	 */
+	protected static function set_current_request_failed( $status ): void {
+		static::$current_request_failed = (bool) $status;
+	}
+
+	/**
+	 * Checks whether the current request has been marked as failed.
+	 *
+	 * This can be used during checkout processing to determine whether
+	 * tax calculation failed earlier in the request.
+	 *
+	 * @return bool True if the current request failed, false otherwise.
+	 */
+	public static function is_current_request_failed(): bool {
+		return static::$current_request_failed;
 	}
 }
