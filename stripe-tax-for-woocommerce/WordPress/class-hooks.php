@@ -1241,10 +1241,14 @@ class Hooks {
 			$exception_class = '\Automattic\WooCommerce\StoreApi\Exceptions\RouteException';
 
 			if ( class_exists( $exception_class ) ) {
+				$message = $handlers_class::get_current_request_error_message();
+				if ( '' === $message ) {
+					$message = esc_html__( 'Taxes have not been calculated at the moment.', 'stripe-tax-for-woocommerce' );
+				}
 
 				throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
 					'stripe_tax_calculation_warning',
-					esc_html__( 'Taxes have not been calculated at the moment.', 'stripe-tax-for-woocommerce' ),
+					esc_html( $message ),
 					400
 				);
 			}

@@ -272,6 +272,18 @@ class Input extends Data {
 		if ( ! isset( $tax_location['country'] ) || ! $tax_location['country'] ) {
 			throw new Input_Exception( 'Invalid tax location address' );
 		}
+
+		$country  = strtoupper( trim( (string) $tax_location['country'] ) );
+		$postcode = isset( $tax_location['postcode'] ) ? trim( (string) $tax_location['postcode'] ) : '';
+		$state    = isset( $tax_location['state'] ) ? trim( (string) $tax_location['state'] ) : '';
+
+		if ( 'US' === $country && '' === $postcode ) {
+			throw new Input_Exception( 'Invalid tax location address' );
+		}
+
+		if ( 'CA' === $country && ( '' === $postcode || '' === $state ) ) {
+			throw new Input_Exception( 'Invalid tax location address' );
+		}
 	}
 
 	/**

@@ -9,6 +9,7 @@ namespace Stripe\StripeTaxForWooCommerce\WooCommerce\Hook_Handlers;
 
 defined( 'ABSPATH' ) || exit;
 
+use Stripe\StripeTaxForWooCommerce\Stripe\StripeCalculationTracker;
 use Stripe\StripeTaxForWooCommerce\WordPress\Hook_Handlers;
 use Stripe\StripeTaxForWooCommerce\Stripe\Tax_Calculation\Order_Controller;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeOrderItemTax;

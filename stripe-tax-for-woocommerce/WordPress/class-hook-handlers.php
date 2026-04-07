@@ -12,6 +12,7 @@ defined( 'ABSPATH' ) || exit;
 use Stripe\StripeTaxForWooCommerce\StripeTax_Options;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxLogger;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
+use Stripe\StripeTaxForWooCommerce\Stripe\Tax_Calculation\Input_Exception;
 use Throwable;
 /**
  * Base class for hook handlers.
@@ -27,6 +28,13 @@ abstract class Hook_Handlers {
 	 * @var bool
 	 */
 	protected static $current_request_failed = false;
+
+	/**
+	 * Stores a human-readable error for the current request failure.
+	 *
+	 * @var string
+	 */
+	protected static $current_request_error_message = '';
 
 	/**
 	 * Register action and filter hook handlers
@@ -98,6 +106,7 @@ abstract class Hook_Handlers {
 	 */
 	protected static function on_error( $err ) {
 		StripeTaxLogger::log_info( $err->getMessage() );
+		static::$current_request_error_message = static::get_customer_safe_error_message( $err );
 
 		if ( is_admin() ) {
 			$message = StripeTaxPluginHelper::format_api_error_message( $err );
@@ -152,6 +161,7 @@ abstract class Hook_Handlers {
 	 */
 	protected static function on_generic_error( $err ) {
 		StripeTaxLogger::log_error( $err->getMessage() );
+		static::$current_request_error_message = static::get_customer_safe_error_message( $err );
 
 		if ( is_admin() ) {
 			$message = StripeTaxPluginHelper::format_api_error_message( $err );
@@ -171,6 +181,10 @@ abstract class Hook_Handlers {
 	 */
 	protected static function set_current_request_failed( $status ): void {
 		static::$current_request_failed = (bool) $status;
+
+		if ( ! static::$current_request_failed ) {
+			static::$current_request_error_message = '';
+		}
 	}
 
 	/**
@@ -183,5 +197,29 @@ abstract class Hook_Handlers {
 	 */
 	public static function is_current_request_failed(): bool {
 		return static::$current_request_failed;
+	}
+
+	/**
+	 * Returns the error message associated with current request failure.
+	 *
+	 * @return string
+	 */
+	public static function get_current_request_error_message(): string {
+		return static::$current_request_error_message;
+	}
+
+	/**
+	 * Returns a checkout-safe error message for customers.
+	 *
+	 * @param Throwable $err The captured exception.
+	 *
+	 * @return string
+	 */
+	protected static function get_customer_safe_error_message( Throwable $err ): string {
+		if ( $err instanceof Input_Exception ) {
+			return wp_strip_all_tags( (string) $err->getMessage() );
+		}
+
+		return '';
 	}
 }
