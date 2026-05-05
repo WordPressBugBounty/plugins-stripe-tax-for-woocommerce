@@ -30,9 +30,13 @@ use WC_Order_Item;
 class CalculateTax {
 	use StripeClientTrait;
 
-	const CACHE_GROUP = 'stripe-tax-for-woocommerce';
-	const CACHE_KEY   = 'calculate-tax';
-	const TABLE_NAME  = STRIPE_TAX_FOR_WOOCOMMERCE_DB_PREFIX . 'calculate_tax';
+	const CACHE_GROUP               = 'stripe-tax-for-woocommerce';
+	const CACHE_KEY                 = 'calculate-tax';
+	const TABLE_NAME                = STRIPE_TAX_FOR_WOOCOMMERCE_DB_PREFIX . 'calculate_tax';
+	const CLEANUP_RETENTION_SECONDS = 2 * HOUR_IN_SECONDS;
+	const CLEANUP_BATCH_SIZE        = 1500;
+	const CLEANUP_COOLDOWN_SECONDS  = 1 * MINUTE_IN_SECONDS;
+	const CLEANUP_TRANSIENT_KEY     = 'stripe_tax_calculate_tax_cleanup_lock';
 
 	/**
 	 * Stripe API key
@@ -1118,6 +1122,52 @@ class CalculateTax {
 				)
 			)
 		);
+
+		static::maybe_cleanup_old_rows();
+	}
+
+	/**
+	 * Deletes old calculate_tax rows in bounded batches.
+	 *
+	 * @param int $keep_seconds Retention period in seconds. Default: 2 hours.
+	 * @param int $batch_size Batch size per delete query. Default: 1000 rows.
+	 *
+	 * @return int Number of rows deleted.
+	 */
+	public static function cleanup_old_rows_batch( int $keep_seconds = self::CLEANUP_RETENTION_SECONDS, int $batch_size = self::CLEANUP_BATCH_SIZE ): int {
+		global $wpdb;
+
+		$cutoff = time() - $keep_seconds;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->query(
+			$wpdb->prepare(
+				'DELETE FROM %i WHERE %i < %d LIMIT %d',
+				array(
+					self::TABLE_NAME,
+					'time',
+					$cutoff,
+					$batch_size,
+				)
+			)
+		);
+
+		return is_int( $deleted ) ? $deleted : 0;
+	}
+
+	/**
+	 * Runs throttled cleanup of old calculate_tax rows.
+	 * Uses a transient to prevent running more than once per minute.
+	 *
+	 * @return void
+	 */
+	protected static function maybe_cleanup_old_rows(): void {
+		if ( get_transient( self::CLEANUP_TRANSIENT_KEY ) ) {
+			return;
+		}
+
+		set_transient( self::CLEANUP_TRANSIENT_KEY, 1, self::CLEANUP_COOLDOWN_SECONDS );
+		static::cleanup_old_rows_batch();
 	}
 
 	/**

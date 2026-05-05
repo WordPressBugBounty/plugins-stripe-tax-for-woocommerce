@@ -238,14 +238,12 @@ class Input extends Data {
 				break;
 
 			case 'base':
-				$shop_location = wc_get_base_location();
-
-				$tax_location['city']     = get_option( 'woocommerce_store_city' );
-				$tax_location['postcode'] = get_option( 'woocommerce_store_postcode' );
-				$tax_location['country']  = $shop_location['country'];
-				$tax_location['state']    = $shop_location['state'];
-				$tax_location['line1']    = get_option( 'woocommerce_store_address' );
-				$tax_location['line2']    = get_option( 'woocommerce_store_address_2' );
+				$tax_location['city']     = '';
+				$tax_location['postcode'] = '';
+				$tax_location['country']  = '';
+				$tax_location['state']    = '';
+				$tax_location['line1']    = '';
+				$tax_location['line2']    = '';
 
 				$tax_location['source'] = static::ADDRESS_SOURCE_SHIPPING;
 

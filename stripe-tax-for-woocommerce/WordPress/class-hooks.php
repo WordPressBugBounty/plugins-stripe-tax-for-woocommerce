@@ -885,11 +885,17 @@ class Hooks {
 	 * Check if migrations needed.
 	 */
 	public static function check_migrations() {
-		$plugin_migration = get_option( 'stripe_tax_migration' );
+		$migration_version = intval( get_option( 'stripe_tax_migration', '0' ) );
 
-		if ( '1' !== $plugin_migration ) {
+		if ( $migration_version < 1 ) {
 			PluginActivate::maybe_migrate_tax_transactions_table();
 			update_option( 'stripe_tax_migration', '1' );
+			$migration_version = 1;
+		}
+
+		if ( $migration_version < 2 ) {
+			PluginActivate::maybe_add_time_index_to_calculate_tax_table();
+			update_option( 'stripe_tax_migration', '2' );
 		}
 	}
 
