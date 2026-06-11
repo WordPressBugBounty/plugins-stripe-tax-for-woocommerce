@@ -178,7 +178,7 @@ abstract class TaxTransaction {
 		$order_refunded_item_id = $order_refund_item->get_meta( '_refunded_item_id' );
 		$order_refunded_item    = $order->get_item( $order_refunded_item_id );
 
-		$reference = Order_Input::build_item_reference_by_type( $order_refunded_item );
+		$reference = Order_Input::build_item_reference_by_type( $order_refunded_item, true );
 
 		return $reference;
 	}
@@ -192,7 +192,7 @@ abstract class TaxTransaction {
 	 */
 	public static function get_tax_transaction_refund_line_items( $wc_order_refund, object $tax_transaction_data, array $already_refunded_per_line_item = array() ): array {
 		$tax_transaction_data = Util::convertToStripeObject( $tax_transaction_data, array() );
-		$items                = $wc_order_refund->get_items();
+		$items                = $wc_order_refund->get_items( array( 'line_item', 'fee' ) );
 		$currency             = $wc_order_refund->get_currency();
 		$line_items           = array();
 		$line_items_counter   = 0;
@@ -215,7 +215,7 @@ abstract class TaxTransaction {
 				continue;
 			}
 
-			$quantity   = - $item->get_quantity();
+			$quantity   = 'fee' === $item->get_type() ? 1 : - $item->get_quantity();
 			$amount     = Amount_Utility::to_cents( $item->get_total( 'edit' ), $currency );
 			$tax_amount = Amount_Utility::to_cents( $item->get_total_tax( 'edit' ), $currency );
 
@@ -246,6 +246,7 @@ abstract class TaxTransaction {
 				'amount_tax'         => $tax_amount,
 			);
 
+			++$line_items_counter;
 		}
 
 		return $line_items;

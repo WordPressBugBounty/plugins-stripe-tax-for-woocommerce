@@ -871,7 +871,6 @@ class CalculateTax {
 							'amount'    => $tax_breakdown->amount,
 						);
 					} else {
-						$new_item_tax_rates[ $rate_key ]['rate']   += (float) $rate_percentage;
 						$new_item_tax_rates[ $rate_key ]['amount'] += $tax_breakdown->amount;
 					}
 				}

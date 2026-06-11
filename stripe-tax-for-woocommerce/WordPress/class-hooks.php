@@ -589,8 +589,9 @@ class Hooks {
 					'__stripe_tax_behavior',
 					Data::CART_ITEM_REFERENCE_META_NAME,
 					Data::TAX_EXCLUDED_META_NAME,
+					'_stripe_tax_checkout_total_tax_inclusive',
+					'_stripe_tax_checkout_subtotal_tax_inclusive',
 				);
-
 				foreach ( $formatted_meta as $key => $meta ) {
 					if ( in_array( $meta->key, $meta_to_hide, true ) ) {
 						unset( $formatted_meta[ $key ] );

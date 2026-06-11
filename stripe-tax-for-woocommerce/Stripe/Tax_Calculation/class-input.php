@@ -282,6 +282,10 @@ class Input extends Data {
 		if ( 'CA' === $country && ( '' === $postcode || '' === $state ) ) {
 			throw new Input_Exception( 'Invalid tax location address' );
 		}
+
+		if ( '' === $postcode && '' === $state ) {
+			throw new Input_Exception( 'Invalid tax location address' );
+		}
 	}
 
 	/**

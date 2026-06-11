@@ -213,6 +213,8 @@ class StripeCalculationTracker {
 			'get_refreshed_fragments',
 			'update_shipping_method',
 			'checkout_coupon',
+			// Stripe gateway updates Checkout Session / PaymentIntent through this endpoint.
+			'wc_stripe_update_checkout_session',
 		);
 
 		$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
