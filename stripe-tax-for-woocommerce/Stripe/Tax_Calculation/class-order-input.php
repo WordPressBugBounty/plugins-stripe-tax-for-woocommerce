@@ -35,7 +35,9 @@ class Order_Input extends Input {
 	 */
 	public static function from_order( WC_Order $order, $tax_location_override, $customer_user_id_override = null ) {
 		if ( $customer_user_id_override ) {
-			$taxability_override = self::get_user_taxability_override_by_id( $customer_user_id_override );
+			$customer = new WC_Customer( $customer_user_id_override );
+
+			$taxability_override = self::get_customer_taxability_override( $customer );
 		} else {
 			$customer_id = $order->get_customer_id();
 			$customer    = new WC_Customer( $customer_id );
@@ -104,6 +106,11 @@ class Order_Input extends Input {
 
 		$input_lines = array();
 		foreach ( $items as $item ) {
+			/**
+			 * Current order item from line item or fee collection.
+			 *
+			 * @var \WC_Order_Item_Product|\WC_Order_Item_Fee $item
+			 */
 			$total             = null;
 			$subtotal          = null;
 			$item_tax_behavior = $item->get_meta( '__stripe_tax_behavior' );
@@ -120,16 +127,16 @@ class Order_Input extends Input {
 			$reference = self::build_item_reference_by_type( $item );
 
 			if ( self::TAX_BEHAVIOR_INCLUSIVE === $item_tax_behavior ) {
-				$stripe_checkout_total_tax_inclusive = (float) $item->get_meta( '_stripe_tax_checkout_total_tax_inclusive' );
+				$stripe_checkout_total_tax_inclusive = $item->get_meta( '_stripe_tax_checkout_total_tax_inclusive' );
 
 				if ( '' !== $stripe_checkout_total_tax_inclusive ) {
-					$total = 0 + $stripe_checkout_total_tax_inclusive;
+					$total = 0 + (float) $stripe_checkout_total_tax_inclusive;
 				}
 
-				$stripe_checkout_subtotal_tax_inclusive = (float) $item->get_meta( '_stripe_tax_checkout_subtotal_tax_inclusive' );
+				$stripe_checkout_subtotal_tax_inclusive = $item->get_meta( '_stripe_tax_checkout_subtotal_tax_inclusive' );
 
-				if ( '' !== $stripe_checkout_total_tax_inclusive ) {
-					$subtotal = 0 + $stripe_checkout_subtotal_tax_inclusive;
+				if ( '' !== $stripe_checkout_subtotal_tax_inclusive ) {
+					$subtotal = 0 + (float) $stripe_checkout_subtotal_tax_inclusive;
 				}
 			}
 
@@ -215,9 +222,6 @@ class Order_Input extends Input {
 		if ( $tax_location_override ) {
 			$order_tax_location = $order->get_taxable_location( $tax_location_override );
 		}
-
-		$id       = $order->get_customer_id();
-		$customer = new WC_Customer( $order->get_customer_id() );
 
 		$tax_location = self::get_customer_tax_location( $order, isset( $order_tax_location ) ? $order_tax_location : null );
 

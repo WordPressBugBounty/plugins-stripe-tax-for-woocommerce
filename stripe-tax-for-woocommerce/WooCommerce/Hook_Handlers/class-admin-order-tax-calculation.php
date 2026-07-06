@@ -49,11 +49,10 @@ abstract class Admin_Order_Tax_Calculation extends Hook_Handlers {
 	 * @var array Tax rate labels.
 	 */
 	private static $tax_rate_labels = array();
-
 	/**
-	 * Temporarly stores id of orders with recalculated coupons.
+	 * Temporarily stores IDs of orders with recalculated coupons.
 	 *
-	 * @var array Order IDs.
+	 * @var int[] Order IDs.
 	 */
 	private static $recalculated_coupon_orders = array();
 
@@ -160,7 +159,9 @@ abstract class Admin_Order_Tax_Calculation extends Hook_Handlers {
 
 			$item->add_meta_data( Order_Input::CART_ITEM_REFERENCE_META_NAME, $reference, true );
 
-			$tax_behavior = $prices_include_tax && StripeTax_Options::item_allow_price_tax_inclusive( $item_type ) ? Order_Input::TAX_BEHAVIOR_INCLUSIVE : Order_Input::TAX_BEHAVIOR_EXCLUSIVE;
+			$tax_behavior = StripeTax_Options::item_allow_price_tax_inclusive( $item_type )
+				? Order_Input::TAX_BEHAVIOR_INCLUSIVE
+				: Order_Input::TAX_BEHAVIOR_EXCLUSIVE;
 
 			$item->update_meta_data( '__stripe_tax_behavior', $tax_behavior );
 
@@ -206,12 +207,35 @@ abstract class Admin_Order_Tax_Calculation extends Hook_Handlers {
 					}
 
 					if ( $nonce_ok && isset( $_POST['country'], $_POST['state'], $_POST['postcode'], $_POST['city'] ) ) {
+						$shipping_address = map_deep( wp_unslash( $_POST['stripe_tax_for_woocommerce_customer_details_shipping_address'] ?? array() ), 'sanitize_text_field' );
+						$billing_address  = map_deep( wp_unslash( $_POST['stripe_tax_for_woocommerce_customer_details_billing_address'] ?? array() ), 'sanitize_text_field' );
+
+						$line1 = trim( (string) ( $shipping_address['line1'] ?? '' ) );
+						if ( '' === $line1 ) {
+							$line1 = trim( (string) ( $billing_address['line1'] ?? '' ) );
+						}
+
+						$line2 = trim( (string) ( $shipping_address['line2'] ?? '' ) );
+						if ( '' === $line2 ) {
+							$line2 = trim( (string) ( $billing_address['line2'] ?? '' ) );
+						}
+
 						$tax_location = array(
 							'country'  => sanitize_text_field( wp_unslash( $_POST['country'] ) ),
 							'state'    => sanitize_text_field( wp_unslash( $_POST['state'] ) ),
 							'postcode' => sanitize_text_field( wp_unslash( $_POST['postcode'] ) ),
 							'city'     => sanitize_text_field( wp_unslash( $_POST['city'] ) ),
+							'line1'    => $line1,
+							'line2'    => $line2,
 						);
+
+						if ( isset( $_POST['line1'] ) ) {
+							$tax_location['line1'] = sanitize_text_field( wp_unslash( $_POST['line1'] ) );
+						}
+
+						if ( isset( $_POST['line2'] ) ) {
+							$tax_location['line2'] = sanitize_text_field( wp_unslash( $_POST['line2'] ) );
+						}
 					}
 
 					if ( isset( $_REQUEST['stripe_tax_for_woocommerce_customer_user'] ) ) {

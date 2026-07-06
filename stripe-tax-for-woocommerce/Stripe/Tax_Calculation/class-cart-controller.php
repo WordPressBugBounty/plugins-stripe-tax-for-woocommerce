@@ -125,9 +125,7 @@ abstract class Cart_Controller {
 			}
 		}
 
-		$raw_total          = $cart->get_total( 'edit' );
-		$raw_subtotal       = $cart->get_subtotal( 'edit' );
-		$raw_shipping_total = $cart->get_shipping_total( 'edit' );
+		$raw_total = $cart->get_total( 'edit' );
 
 		$cart->set_discount_total( Amount_Utility::round( $discount_total ) );
 		$cart->set_discount_tax( Amount_Utility::round( $discount_tax ) );
