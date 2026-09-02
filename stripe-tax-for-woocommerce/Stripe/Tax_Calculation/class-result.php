@@ -365,13 +365,32 @@ class Result extends Data {
 	 * @param object $api_line_item Tax calculation response line item.
 	 */
 	protected static function tax_breakdown_from_api_calculation_result_line_item( $api_line_item ) {
-		$api_line_item_breakdown = $api_line_item->tax_breakdown;
-		$tax_breakdown           = array();
+		$api_line_item_breakdown   = $api_line_item->tax_breakdown;
+		$tax_breakdown             = array();
+		$is_inclusive_tax_behavior = isset( $api_line_item->tax_behavior )
+			&& self::TAX_BEHAVIOR_INCLUSIVE === $api_line_item->tax_behavior;
 
 		foreach ( $api_line_item_breakdown as $tax_breakdown_line ) {
-			$tax_rate = StripeTax_Tax_Rate_Controller::find_by_api_tax_breakdown( $tax_breakdown_line );
+			$tax_rate  = StripeTax_Tax_Rate_Controller::find_by_api_tax_breakdown( $tax_breakdown_line );
+			$rate_type = isset( $tax_breakdown_line->tax_rate_details->rate_type )
+				? (string) $tax_breakdown_line->tax_rate_details->rate_type
+				: 'percentage';
+			$tax_type  = isset( $tax_breakdown_line->tax_rate_details->tax_type )
+				? (string) $tax_breakdown_line->tax_rate_details->tax_type
+				: '';
 
-			if ( ! $tax_rate || 0.0 === (float) $tax_rate['rate'] || 0 === $tax_breakdown_line->amount ) {
+			$rate_percent            = $tax_rate ? (float) $tax_rate['rate'] : 0.0;
+			$is_flat_amount_tax_line = 'flat_amount' === $rate_type || 'retail_delivery_fee' === $tax_type;
+
+			if ( ! $tax_rate || 0 === $tax_breakdown_line->amount ) {
+				continue;
+			}
+
+			if ( $is_inclusive_tax_behavior && 0.0 === $rate_percent ) {
+				continue;
+			}
+
+			if ( ! $is_inclusive_tax_behavior && 0.0 === $rate_percent && ! $is_flat_amount_tax_line ) {
 				continue;
 			}
 

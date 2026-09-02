@@ -48,6 +48,20 @@ use Stripe\StripeTaxForWooCommerce\Stripe\Tax_Calculation\Data;
 class Hooks {
 
 	/**
+	 * AJAX action used to dismiss the sandbox mode admin notice.
+	 *
+	 * @var string
+	 */
+	const SANDBOX_NOTICE_DISMISS_ACTION = 'stripe_tax_for_woocommerce_dismiss_sandbox_notice';
+
+	/**
+	 * User meta key that stores whether the sandbox mode notice was dismissed.
+	 *
+	 * @var string
+	 */
+	const SANDBOX_NOTICE_DISMISSED_META = 'stripe_tax_for_woocommerce_sandbox_notice_dismissed';
+
+	/**
 	 * Contains WP Hooks initialization state.
 	 *
 	 * @var bool $hooks_initialized
@@ -217,6 +231,26 @@ class Hooks {
 			array(
 				AdminAjax::class,
 				'disconnect_from_stripe',
+			),
+			10,
+			0
+		);
+
+		add_action(
+			'wp_ajax_' . self::SANDBOX_NOTICE_DISMISS_ACTION,
+			array(
+				AdminAjax::class,
+				'dismiss_sandbox_notice',
+			),
+			10,
+			0
+		);
+
+		add_action(
+			'wp_ajax_stripe_tax_for_woocommerce_force_refresh_tax_registrations',
+			array(
+				AdminAjax::class,
+				'force_refresh_tax_registrations',
 			),
 			10,
 			0
@@ -565,6 +599,48 @@ class Hooks {
 			0
 		);
 
+		if ( Options::is_skip_cart_tax_calculation() ) {
+			add_filter(
+				'woocommerce_cart_tax_totals',
+				array(
+					static::class,
+					'filter_cart_tax_totals_skip_cart',
+				),
+				10,
+				2
+			);
+
+			add_filter(
+				'woocommerce_cart_totals_taxes_total_html',
+				array(
+					static::class,
+					'filter_cart_totals_taxes_html_skip_cart',
+				),
+				10,
+				1
+			);
+
+			add_filter(
+				'woocommerce_cart_totals_order_total_html',
+				array(
+					static::class,
+					'filter_cart_totals_order_total_html_skip_cart',
+				),
+				10,
+				1
+			);
+
+			add_action(
+				'wp_enqueue_scripts',
+				array(
+					static::class,
+					'action_enqueue_skip_cart_tax_script',
+				),
+				10,
+				0
+			);
+		}
+
 		// Using this to ignore Woocommerce rates to be displayed in shop.
 		if ( Options::is_live_mode_enabled() ) {
 			add_filter(
@@ -680,6 +756,189 @@ class Hooks {
 		WP_CLI::add_command( 'stripe-tax-transaction-reverse', TaxTransactionReversal::class );
 	}
 
+	// phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
+	/**
+	 * Filter cart tax totals when skip cart tax calculation is enabled.
+	 * Shows cached tax amount if available, otherwise "Tax calculated at checkout".
+	 *
+	 * @param array    $tax_totals Tax totals.
+	 * @param \WC_Cart $cart The cart object.
+	 *
+	 * @return array Modified tax totals.
+	 */
+	public static function filter_cart_tax_totals_skip_cart( $tax_totals, $cart ) {
+		if ( self::is_checkout_context() || is_admin() ) {
+			return $tax_totals;
+		}
+
+		$cached_totals = self::get_cached_tax_totals();
+
+		if ( ! empty( $cached_totals ) ) {
+			$result = array();
+			foreach ( $cached_totals as $code => $data ) {
+				$item                   = new \stdClass();
+				$item->tax_rate_id      = $data['tax_rate_id'] ?? 0;
+				$item->label            = $data['label'] ?? WC()->countries->tax_or_vat();
+				$item->amount           = $data['amount'] ?? 0;
+				$item->formatted_amount = $data['formatted_amount'] ?? wc_price( $item->amount );
+				$item->is_compound      = $data['is_compound'] ?? false;
+				$result[ $code ]        = $item;
+			}
+			return $result;
+		}
+
+		$placeholder                   = new \stdClass();
+		$placeholder->tax_rate_id      = 0;
+		$placeholder->is_compound      = false;
+		$placeholder->label            = __( 'Tax', 'stripe-tax-for-woocommerce' );
+		$placeholder->amount           = 0;
+		$placeholder->formatted_amount = __( 'Calculated at checkout', 'stripe-tax-for-woocommerce' );
+
+		return array( 'stripe_tax_placeholder' => $placeholder );
+	}
+	// phpcs:enable Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
+
+	/**
+	 * Filter cart taxes total HTML when skip cart tax calculation is enabled.
+	 *
+	 * @param string $value Formatted tax total HTML.
+	 *
+	 * @return string Modified tax total HTML.
+	 */
+	public static function filter_cart_totals_taxes_html_skip_cart( $value ) {
+		if ( self::is_checkout_context() || is_admin() ) {
+			return $value;
+		}
+
+		$cached = self::get_cached_cart_tax();
+
+		if ( $cached > 0 ) {
+			return wc_price( $cached );
+		}
+
+		return esc_html__( 'Calculated at checkout', 'stripe-tax-for-woocommerce' );
+	}
+
+	/**
+	 * Filter cart order total HTML for inclusive pricing when skip cart tax calculation is enabled.*
+	 *
+	 * @param string $value Order total HTML.
+	 *
+	 * @return string Modified order total HTML.
+	 */
+	public static function filter_cart_totals_order_total_html_skip_cart( $value ) {
+		if ( self::is_checkout_context() || is_admin() || ! wc_tax_enabled() ) {
+			return $value;
+		}
+
+		if ( ! WC()->cart || ! WC()->cart->display_prices_including_tax() ) {
+			return $value;
+		}
+
+		$cached    = self::get_cached_cart_tax();
+		$tax_label = WC()->countries->tax_or_vat();
+
+		if ( $cached > 0 ) {
+			$tax_string = sprintf( '%s %s', wc_price( $cached ), $tax_label );
+		} else {
+			$tax_string = $tax_label;
+		}
+
+		/* translators: %s: tax information (e.g. "Tax" or "$5.00 Tax") */
+		$includes_text = sprintf( __( '(includes %s)', 'woocommerce' ), $tax_string );
+
+		$value  = '<strong>' . WC()->cart->get_total() . '</strong> ';
+		$value .= '<small class="includes_tax">' . $includes_text . '</small>';
+
+		return $value;
+	}
+
+	/**
+	 * Check if the current request is a checkout context.
+	 *
+	 * @return bool
+	 */
+	private static function is_checkout_context(): bool {
+		if ( is_checkout() ) {
+			return true;
+		}
+
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST && isset( $_SERVER['HTTP_REFERER'] ) ) {
+			$referer          = sanitize_url( wp_unslash( $_SERVER['HTTP_REFERER'] ) );
+			$checkout_page_id = wc_get_page_id( 'checkout' );
+
+			if ( $checkout_page_id > 0 && url_to_postid( $referer ) === $checkout_page_id ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get cached tax totals (with labels) from WC session.
+	 *
+	 * @return array Cached tax totals or empty array.
+	 */
+	private static function get_cached_tax_totals(): array {
+		if ( ! function_exists( 'WC' ) || ! WC()->session ) {
+			return array();
+		}
+
+		$cached = WC()->session->get( 'stripe_tax_cached_cart_taxes' );
+
+		if ( empty( $cached ) || empty( $cached['tax_totals'] ) ) {
+			return array();
+		}
+
+		return (array) $cached['tax_totals'];
+	}
+
+	/**
+	 * Get cached cart tax amount from WC session.
+	 *
+	 * @return float Cached tax amount or 0.
+	 */
+	private static function get_cached_cart_tax(): float {
+		if ( ! function_exists( 'WC' ) || ! WC()->session ) {
+			return 0.0;
+		}
+
+		$cached = WC()->session->get( 'stripe_tax_cached_cart_taxes' );
+
+		if ( empty( $cached ) || ! isset( $cached['total_tax'] ) ) {
+			return 0.0;
+		}
+
+		return (float) $cached['total_tax'];
+	}
+
+	/**
+	 * Queue JS to show "Tax calculated at checkout" in the block-based cart totals.
+	 */
+	public static function action_enqueue_skip_cart_tax_script(): void {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$handle = 'stripe-tax-cart-notice';
+		wp_enqueue_script(
+			$handle,
+			STRIPE_TAX_FOR_WOOCOMMERCE_ASSETS_JS_URL . 'stripe-tax-cart-notice.js',
+			array(),
+			'1.0.0',
+			true
+		);
+		wp_add_inline_script(
+			$handle,
+			sprintf(
+				'window.stripeTaxCartNotice=%s;',
+				wp_json_encode( __( 'Tax calculated at checkout', 'stripe-tax-for-woocommerce' ) )
+			),
+			'before'
+		);
+	}
+
 	/**
 	 * Using this to ignore Woocommerce rates to be displayed in shop.
 	 */
@@ -740,6 +999,54 @@ class Hooks {
 			include STRIPE_TAX_FOR_WOOCOMMERCE_TEMPLATES_DIR . 'plugin-activate-notice.php';
 			delete_transient( 'stripe_tax_for_woocommerce_activate' );
 		}
+
+		static::maybe_render_sandbox_notice();
+	}
+
+	/**
+	 * Renders the sandbox mode admin notice.
+	 *
+	 * The notice is only displayed when the plugin runs in sandbox (test) mode and
+	 * the current user has not dismissed it. While in live mode it is never shown.
+	 *
+	 * @return void
+	 */
+	public static function maybe_render_sandbox_notice() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) { // phpcs:ignore WordPress.WP.Capabilities.Unknown -- manage_woocommerce is a capability registered by WooCommerce.
+			return;
+		}
+
+		if ( Options::MODE_TEST !== Options::get_mode_type() ) {
+			return;
+		}
+
+		$current_token   = static::get_sandbox_notice_token();
+		$dismissed_token = get_user_meta( get_current_user_id(), static::SANDBOX_NOTICE_DISMISSED_META, true );
+
+		if ( '' !== $dismissed_token && $dismissed_token === $current_token ) {
+			return;
+		}
+
+		include STRIPE_TAX_FOR_WOOCOMMERCE_TEMPLATES_DIR . 'sandbox-mode-notice.php';
+	}
+
+	/**
+	 * Returns the current sandbox notice session token.
+	 *
+	 * The token identifies the current sandbox session. It is regenerated each
+	 * time the plugin switches from live mode to sandbox mode.
+	 *
+	 * @return string
+	 */
+	public static function get_sandbox_notice_token(): string {
+		$token = Options::get_option( Options::OPTION_SANDBOX_NOTICE_TOKEN );
+
+		if ( '' === $token ) {
+			$token = wp_generate_uuid4();
+			Options::update_option( Options::OPTION_SANDBOX_NOTICE_TOKEN, $token );
+		}
+
+		return $token;
 	}
 
 

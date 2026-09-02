@@ -526,6 +526,19 @@ class StripeTax extends WC_Settings_Page {
 			}
 		}
 
+		$previous_mode_type = Options::get_mode_type();
+		$mode_type          = ! empty( $_POST['stripe_tax_for_woocommerce_mode'] ) ? 1 : 0;
+
+		// When switching from live mode to sandbox mode, regenerate the sandbox notice token.
+		if ( Options::MODE_TEST === $mode_type && Options::MODE_TEST !== $previous_mode_type ) {
+			Options::update_option( Options::OPTION_SANDBOX_NOTICE_TOKEN, wp_generate_uuid4() );
+		}
+
+		if ( array_key_exists( 'stripe_tax_for_woocommerce_skip_cart_tax_calculation', $_POST ) && is_string( $_POST['stripe_tax_for_woocommerce_skip_cart_tax_calculation'] ) ) {
+			$skip_cart = sanitize_text_field( wp_unslash( $_POST['stripe_tax_for_woocommerce_skip_cart_tax_calculation'] ) );
+			Options::update_option( Options::OPTION_SKIP_CART_TAX_CALCULATION, '1' === $skip_cart ? '1' : '0' );
+		}
+
 		$mode_type = ! empty( $_POST['stripe_tax_for_woocommerce_mode'] ) ? 1 : 0;
 		Options::update_option( Options::OPTION_MODE_TYPE, (string) $mode_type );
 
