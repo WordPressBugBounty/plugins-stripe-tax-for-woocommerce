@@ -83,6 +83,10 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip {
 	line-height: 1;
 }
 
+table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.stfwc-help-mode-tip {
+	margin-top: -3px!important;
+}
+
 table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip::after {
 	margin: 0;
 	line-height: 1;
@@ -92,7 +96,7 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip::after {
 
 /* Move only the Mode/Sandbox help icon slightly higher. */
 table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-tip::after {
-	top: -4px;
+	top: -5px;
 }
 
 .woocommerce table.form-table.stripe_tax_for_woocommerce_settings input[type="submit"],
@@ -107,6 +111,16 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-
 .woocommerce_options_panel ._stripe_tax_for_woocommerce_tax_code_field .select2-container
 {
 	width: 50% !important;
+}
+
+.woocommerce_options_panel ._stripe_tax_for_woocommerce_tax_code_field > .woocommerce-help-tip {
+	margin-left: 4px;
+	vertical-align: middle;
+}
+
+.woocommerce_options_panel ._stripe_tax_for_woocommerce_tax_code_field .stfwc-product-tax-code-note {
+	margin-top: 15px;
+	display: block;
 }
 
 .stripe_tax_for_woocommerce_tax_ids .select2-container{
@@ -127,11 +141,6 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-
 	pointer-events: none;
 }
 
-.stripe_tax_for_woocommerce_button_disabled .stripe_tax_for_woocommerce_image_connect_with_stripe_st0 {
-	fill: #a7aaad !important;
-}
-
-.stripe_tax_for_woocommerce_button_authorize #stripe_tax_for_woocommerce_button_id_connect_with_stripe,
 .stripe_tax_for_woocommerce_button_authorize #stripe_tax_for_woocommerce_button_id_disconnect_from_stripe {
 	padding-right: 58px;
 }
@@ -202,7 +211,7 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-
 	}
 
 	table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-tip::after {
-		top: -4px;
+		top: -5px;
 	}
 
 	.stripe_tax_for_woocommerce_settings.form-table td .stripe_tax_for_woocommerce_message p {
@@ -215,12 +224,6 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-
 		vertical-align: top;
 	}
 
-	.stripe_tax_for_woocommerce_button_authorize .stripe_tax_for_woocommerce_image_connect_with_stripe {
-		width: 82px !important;
-		height: 39px !important;
-	}
-
-	.stripe_tax_for_woocommerce_button_authorize #stripe_tax_for_woocommerce_button_id_connect_with_stripe,
 	.stripe_tax_for_woocommerce_button_authorize #stripe_tax_for_woocommerce_button_id_disconnect_from_stripe {
 		padding-right: 84px;
 	}
@@ -297,6 +300,16 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-
 	user-select: none;
 }
 
+.stripe_tax_for_woocommerce_settings .js-mode-current-label{
+	margin-top: 8px!important;
+}
+
+.stripe_tax_for_woocommerce_key_field_row {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
 /* When Select2 is disabled */
 .select2-container--disabled .select2-selection--single {
 	border: 1px solid rgba(220,220,222,.75) !important;
@@ -325,4 +338,11 @@ table.form-table.stripe_tax_for_woocommerce_settings th .stfwc-help-tip.js-mode-
 {
 	color: #a9a9a9 !important;
 	pointer-events: none;
+}
+
+/* Prevent the WP admin footer text from overlapping the tax registrations
+   list table's bulk actions/Apply controls when the page content is short. */
+.stripe_tax_for_woocommerce_step_3,
+.stripe_tax_for_woocommerce_registrations_list_form {
+	margin-bottom: 60px;
 }

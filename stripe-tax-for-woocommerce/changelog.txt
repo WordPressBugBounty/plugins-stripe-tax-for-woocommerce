@@ -1,5 +1,24 @@
 *** Stripe Tax - Sales tax automation for WooCommerce ***
 
+2026-10-14 - version 2.2.0
+* Improved the live/sandbox mode toggle label to clearly convey the current state.
+* Fixed the key label mismatch between the Stripe App and WooCommerce connector.
+* Enabled Stripe Tax automatically when the Stripe Tax connector is installed.
+* Simplified product tax category configuration by removing the need to set it in two separate places.
+* Converted bare URLs in error messages into hyperlinks.
+* Fixed Canadian GST/HST registration types being displayed when the United States is selected as the country.
+* Added an explanation at checkout when Stripe Tax calculates 0% tax, helping merchants distinguish a valid zero-tax result from a configuration error.
+* Added error messages, status indicators, and diagnostic guidance for failed tax calculations.
+* Fixed the “Save changes” button remaining disabled for Alabama, the default state when adding a new registration.
+* Added integration with WooCommerce Subscriptions.
+* Fixed post-capture recalculation overwriting the order total and causing a mismatch with the payment charge.
+* Fixed the review prompt overlapping the bulk action controls on the Tax Registrations page.
+* Fixed WooCommerce 11 overwriting Stripe Tax virtual tax rates with rate_percent = 0.
+* Prevented Stripe Tax from blocking WooCommerce Store API calls when disabled.
+* Reactivated the built-in WooCommerce tax system when Stripe Tax is active and "Enable Stripe tax" is unchecked.
+* Added missing headers and the HPOS compatibility declaration.
+* Fixed Semgrep security issues.
+
 2026-09-02 - version 2.1.0
 * Added option to skip Stripe Tax calculations on the cart page.
 * Added warning banner in WP admin when Stripe Tax is in sandbox mode.

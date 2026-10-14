@@ -50,10 +50,8 @@ class StripeCalculationTracker {
 		add_action(
 			'admin_init',
 			function () {
-				$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
-				wp_verify_nonce( $nonce );
 				// @phpstan-ignore-next-line
-				if ( defined( 'DOING_AJAX' ) && DOING_AJAX && isset( $_REQUEST['action'] ) && 'woocommerce_calc_line_taxes' === $_REQUEST['action'] ) {
+				if ( defined( 'DOING_AJAX' ) && DOING_AJAX && isset( $_REQUEST['action'] ) && 'woocommerce_calc_line_taxes' === $_REQUEST['action'] ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
 					self::$should_calculate = true;
 				}
 			}
@@ -167,14 +165,11 @@ class StripeCalculationTracker {
 				}
 			}
 
-			$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
-			wp_verify_nonce( $nonce );
-
-			if ( ! $skip_cart && isset( $_POST['woocommerce-cart-nonce'] ) ) {
+			if ( ! $skip_cart && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce-cart-nonce'] ?? '' ) ), 'woocommerce-cart' ) ) {
 				return true;
 			}
 
-			if ( isset( $_POST['woocommerce-process-checkout-nonce'] ) ) {
+			if ( wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce-process-checkout-nonce'] ?? '' ) ), 'woocommerce-process_checkout' ) ) {
 				return true;
 			}
 
@@ -271,13 +266,10 @@ class StripeCalculationTracker {
 			'checkout_coupon',
 		);
 
-		$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
-		wp_verify_nonce( $nonce );
-
 		// @phpstan-ignore-next-line
 		return defined( 'DOING_AJAX' ) && DOING_AJAX &&
-			isset( $_GET['wc-ajax'] ) &&
-			in_array( sanitize_text_field( $_GET['wc-ajax'] ), $cart_ajax_actions, true );
+			isset( $_GET['wc-ajax'] ) && // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
+			in_array( sanitize_text_field( $_GET['wc-ajax'] ), $cart_ajax_actions, true ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
 	}
 
 	/**
@@ -298,13 +290,10 @@ class StripeCalculationTracker {
 			'wc_stripe_update_checkout_session',
 		);
 
-		$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
-		wp_verify_nonce( $nonce );
-
 		// @phpstan-ignore-next-line
 		return defined( 'DOING_AJAX' ) && DOING_AJAX &&
-			isset( $_GET['wc-ajax'] ) &&
-			in_array( sanitize_text_field( $_GET['wc-ajax'] ), $checkout_ajax_actions, true );
+			isset( $_GET['wc-ajax'] ) && // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
+			in_array( sanitize_text_field( $_GET['wc-ajax'] ), $checkout_ajax_actions, true ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
 	}
 
 	/**
@@ -313,11 +302,8 @@ class StripeCalculationTracker {
 	 * @return bool
 	 */
 	private static function is_order_received_page(): bool {
-		$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
-		wp_verify_nonce( $nonce );
-
 		return is_page( wc_get_page_id( 'checkout' ) ) &&
-			isset( $_GET['key'] ) &&
-			isset( $_GET['order-received'] );
+			isset( $_GET['key'] ) && // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
+			isset( $_GET['order-received'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request inspection.
 	}
 }

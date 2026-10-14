@@ -349,6 +349,43 @@ jQuery( document ).ready(
 			});
 		});
 
+		$( document ).on(
+			'click',
+			'#stripe_tax_for_woocommerce_run_diagnostics',
+			function (e) {
+				var $this = $( this );
+				e.preventDefault();
+				e.stopPropagation();
+
+				var nonce = $this.data( 'nonce' ) || stripe_tax_for_woocommerce.run_diagnostics_nonce;
+				var $container = $( '#stripe_tax_for_woocommerce_diagnostics_details_container' );
+
+				$this.addClass( 'stripe_tax_for_woocommerce_button_disabled' );
+				$.post(
+					stripe_tax_for_woocommerce.ajax_url,
+					{
+						_nonce: nonce,
+						action: 'stripe_tax_for_woocommerce_run_diagnostics'
+					},
+					function (data) {
+						if (data.success && data.data) {
+							if (data.data.html) {
+								$container.html( data.data.html ).show();
+							} else {
+								$container.empty().hide();
+							}
+						} else {
+							add_message( 'run_diagnostics', (data.data && data.data.message ? data.data.message : stripe_tax_for_woocommerce.diagnostics_failed_message), 'error', $this.closest( '.notice' ) );
+						}
+					}
+				).always(
+					function () {
+						$this.removeClass( 'stripe_tax_for_woocommerce_button_disabled' );
+					}
+				);
+			}
+		);
+
 		function remove_message(message_id) {
 			$( '.stripe_tax_for_woocommerce_message_span_id_' + message_id ).remove();
 			$( '#stripe_tax_for_woocommerce_message_id_' + message_id ).remove();
@@ -390,6 +427,19 @@ jQuery( document ).ready(
 						tr.classList.add( "stripe_tax_disabled" );
 					}
 
+				}
+			} catch (err) {
+			}
+		}
+
+		function restore_tax_option_table_row(id) {
+			try {
+				let optionInput = document.querySelector( "#" + id );
+				let tr          = optionInput.closest( "TR" );
+
+				if (tr) {
+					tr.style.display = "";
+					tr.classList.remove( "stripe_tax_disabled" );
 				}
 			} catch (err) {
 			}
@@ -484,6 +534,11 @@ jQuery( document ).ready(
 			}
 		);
 
+		// Keep the Save button enabled by default.
+		if ($( '.stripe_tax_for_woocommerce_tax_registrations' ).length) {
+			$( '.woocommerce-save-button' ).removeAttr( 'disabled' );
+		}
+
 		$( '.woocommerce-save-button' ).closest( 'form' ).on(
 			'submit',
 			function (event) {
@@ -491,10 +546,24 @@ jQuery( document ).ready(
 			}
 		);
 
-		disable_tax_option_table_row( "woocommerce_tax_round_at_subtotal" );
-		disable_tax_option_table_row( "woocommerce_tax_classes" );
-		disable_tax_option_table_row( "woocommerce_tax_based_on", true );
-		disable_tax_option_table_row( "woocommerce_shipping_tax_class" );
+		var stripe_tax_for_woocommerce_live_mode_enabled = ( typeof stripe_tax_for_woocommerce !== 'undefined' ) && !! stripe_tax_for_woocommerce.live_mode_enabled;
+		var stripe_tax_for_woocommerce_tax_rows          = [
+			[ "woocommerce_tax_round_at_subtotal", undefined ],
+			[ "woocommerce_tax_classes", undefined ],
+			[ "woocommerce_tax_based_on", true ],
+			[ "woocommerce_shipping_tax_class", undefined ]
+		];
+
+		$.each(
+			stripe_tax_for_woocommerce_tax_rows,
+			function (index, row) {
+				if (stripe_tax_for_woocommerce_live_mode_enabled) {
+					disable_tax_option_table_row( row[0], row[1] );
+				} else {
+					restore_tax_option_table_row( row[0] );
+				}
+			}
+		);
 	}
 );
 
@@ -526,7 +595,9 @@ jQuery( document ).ready(
 				}
 			);
 			// Change mode live/test.
-			stripe_settings.toggleMode( $( '#stripe_tax_for_woocommerce_id_toggle_mode' ) );
+			var $modeToggle = $( '#stripe_tax_for_woocommerce_id_toggle_mode' );
+			$modeToggle.attr( 'data-initial-checked', $modeToggle.is( ':checked' ) ? '1' : '0' );
+			stripe_settings.applyModeState( $modeToggle );
 			$( document ).on(
 				'change',
 				'#stripe_tax_for_woocommerce_id_toggle_mode',
@@ -554,20 +625,47 @@ jQuery( document ).ready(
 
 		},
 		toggleMode( toggleCheckboxObj ) {
-			var $modeTip = $( '.js-mode-tip' );
+			var $diagnosticsDetailsContainer = $( '#stripe_tax_for_woocommerce_diagnostics_details_container' );
+
+			$diagnosticsDetailsContainer.hide();
+			stripe_settings.applyModeState( toggleCheckboxObj );
+		},
+		applyModeState( toggleCheckboxObj ) {
+			var $modeTip          = $( '.js-mode-tip' );
+			var $modeCurrentLabel = $( '.js-mode-current-label' );
+			var $apiKeysMessage = $( '#stripe_tax_for_woocommerce_message_id_stripe_tax_api_keys_message' );
+			var liveLabel         = toggleCheckboxObj.attr( 'data-label-live' );
+			var sandboxLabel      = toggleCheckboxObj.attr( 'data-label-sandbox' );
+			var unsavedLiveLabel  = toggleCheckboxObj.attr( 'data-label-unsaved-live' );
+			var unsavedSandboxLabel = toggleCheckboxObj.attr( 'data-label-unsaved-sandbox' );
+			var initialChecked    = toggleCheckboxObj.attr( 'data-initial-checked' );
+			var hasUnsavedModeChange;
+			var selectedLabel;
+
+			if ( typeof initialChecked === 'undefined' ) {
+				initialChecked = toggleCheckboxObj.is( ':checked' ) ? '1' : '0';
+				toggleCheckboxObj.attr( 'data-initial-checked', initialChecked );
+			}
+
+			hasUnsavedModeChange = toggleCheckboxObj.is( ':checked' ) !== ( initialChecked === '1' );
 			if (toggleCheckboxObj.is( ':checked' )) {
 				$( '.js-live-text' ).hide();
 				$( '.js-sandbox-text' ).show();
 				$( '.js-stripe_tax_for_woocommerce_test_mode' ).show();
 				$( '.js-stripe_tax_for_woocommerce_live_mode' ).hide();
 				$modeTip.attr( 'data-tip', $modeTip.attr( 'data-tip-sandbox' ) );
+				selectedLabel = hasUnsavedModeChange ? unsavedSandboxLabel : sandboxLabel;
 			} else {
 				$( '.js-live-text' ).show();
 				$( '.js-sandbox-text' ).hide();
 				$( '.js-stripe_tax_for_woocommerce_test_mode' ).hide();
 				$( '.js-stripe_tax_for_woocommerce_live_mode' ).show();
 				$modeTip.attr( 'data-tip', $modeTip.attr( 'data-tip-live' ) );
+				selectedLabel = hasUnsavedModeChange ? unsavedLiveLabel : liveLabel;
 			}
+			$apiKeysMessage.show();
+			$modeCurrentLabel.text( selectedLabel );
+			toggleCheckboxObj.attr( 'aria-label', selectedLabel );
 			$modeTip.tipTip( { attribute: 'data-tip', fadeIn: 50, fadeOut: 50, delay: 200 } );
 		},
 		setTestConnectionBtnStatus( mode ) {

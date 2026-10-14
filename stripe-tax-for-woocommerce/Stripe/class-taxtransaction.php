@@ -49,9 +49,16 @@ abstract class TaxTransaction {
 		global $wpdb;
 
 		$order = wc_get_order( $order_id );
-		$order->calculate_totals( true );
 
-		$tax_calculation = Calculator::$calculations[ $order_id ];
+		if ( ! isset( Calculator::$calculations[ $order_id ] ) ) {
+			$tax_calculation_input = Order_Input::from_order( $order, null, null );
+
+			if ( isset( $tax_calculation_input['line_items'] ) && is_array( $tax_calculation_input['line_items'] ) ) {
+				Calculator::calculate( $tax_calculation_input, $order_id );
+			}
+		}
+
+		$tax_calculation = Calculator::$calculations[ $order_id ] ?? null;
 
 		if ( ! $tax_calculation ) {
 			return null;

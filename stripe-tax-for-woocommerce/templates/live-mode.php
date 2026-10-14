@@ -20,6 +20,7 @@ use Stripe\StripeTaxForWooCommerce\SDK\lib\StripeClient;
 use Stripe\StripeTaxForWooCommerce\Stripe\StripeTaxPluginHelper;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxCodeList;
 use Stripe\StripeTaxForWooCommerce\Stripe\TaxSettings;
+use Stripe\StripeTaxForWooCommerce\Stripe\TaxHealthCheck;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\Connect;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\ErrorRenderer;
 use Stripe\StripeTaxForWooCommerce\WordPress\Options;
@@ -43,7 +44,7 @@ if ( $stfwc_live_mode_enabled ) {
 
 $stripe_tax_api_keys_message = sprintf(
 	/* translators: %s: URL to Stripe Dashboard API keys page */
-	__( 'You can generate your API key from the <a href="%s" target="_blank" rel="noopener noreferrer" class="js-target-blank">Woo Commerce Tax Stripe App</a>', 'stripe-tax-for-woocommerce' ),
+	__( 'You can generate your API key from the <a href="%s" target="_blank" rel="noopener" class="js-target-blank">Woo Commerce Tax Stripe App</a>', 'stripe-tax-for-woocommerce' ),
 	esc_url( 'https://marketplace.stripe.com/apps/install/link/com.stripe.woocommerce-tax' )
 );
 
@@ -60,10 +61,6 @@ ErrorRenderer::set_error_object( 'notice_message', $notice_message, 'info' );
 ErrorRenderer::set_error_object( 'stripe_tax_include_in_price_tab', 'You can select if your set prices are inclusive or exclusive of tax in the "<a href="' . admin_url( 'admin.php?page=wc-settings&tab=tax' ) . '">Tax</a>" settings tab above.', 'info' );
 ErrorRenderer::set_error_object( 'stripe_tax_registration_tab', 'Taxes will only be applied when registrations are added in the relevant jurisdictions.', 'info' );
 ErrorRenderer::set_error_object( 'stripe_tax_api_keys_message', wp_kses( $stripe_tax_api_keys_message, $allowed ), 'info' );
-
-if ( ! $stfwc_wc_tax_enabled ) {
-	ErrorRenderer::set_error_object( 'wc_tax_enabled_required_to_collect_taxes', 'The Stripe Tax plugin requires tax rates and calculations to be enabled. Go to <a href="' . admin_url( 'admin.php?page=wc-settings&tab=general' ) . '">General</a> and Enable taxes', 'error' );
-}
 
 $stfwc_has_shipping_zones = false;
 if ( class_exists( '\\WC_Shipping_Zones' ) ) {
@@ -93,9 +90,14 @@ if ( $stfwc_live_mode_enabled && ! $stfwc_has_shipping_zones && $stfwc_stripe_ga
 // Init with default values, if settings are not able to receive correctly.
 $html_list = StripeTaxPluginHelper::get_admin_allowed_html();
 
-$stfwc_tip_mode_live    = __( 'Live mode uses production API keys. Tax transactions will be recorded in Stripe. Use Live mode for production.', 'stripe-tax-for-woocommerce' );
-$stfwc_tip_mode_sandbox = __( 'Sandbox mode uses test API keys and does not create real tax transactions. Use Sandbox mode for testing.', 'stripe-tax-for-woocommerce' );
-$stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Dashboard. Generate one from the WooCommerce Tax Stripe App.', 'stripe-tax-for-woocommerce' );
+$stfwc_tip_mode_live              = __( 'Live mode uses production API keys. Tax transactions will be recorded in Stripe. Use Live mode for production.', 'stripe-tax-for-woocommerce' );
+$stfwc_tip_mode_sandbox           = __( 'Sandbox mode uses test API keys and does not create real tax transactions. Use Sandbox mode for testing.', 'stripe-tax-for-woocommerce' );
+$stfwc_tip_secret_key             = __( 'Insert your restricted API key from the Stripe Dashboard. Generate one from the WooCommerce Tax Stripe App.', 'stripe-tax-for-woocommerce' );
+$stfwc_mode_label_live            = __( 'Currently in Live mode. Toggle to switch to Sandbox', 'stripe-tax-for-woocommerce' );
+$stfwc_mode_label_test            = __( 'Currently in Sandbox mode. Toggle to switch to Live', 'stripe-tax-for-woocommerce' );
+$stfwc_mode_unsaved_label_live    = __( 'Save changes to switch to Live mode.', 'stripe-tax-for-woocommerce' );
+$stfwc_mode_unsaved_label_sandbox = __( 'Save changes to switch to Sandbox mode.', 'stripe-tax-for-woocommerce' );
+$stfwc_mode_label                 = Options::MODE_TEST === $stfwc_mode_type ? $stfwc_mode_label_test : $stfwc_mode_label_live;
 ?>
 	<div class="stripe_tax_for_woocommerce_step">
 		<h2><?php echo esc_html( __( 'Stripe Tax', 'stripe-tax-for-woocommerce' ) ); ?></h2>
@@ -118,8 +120,27 @@ $stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Da
 		</div>
 	</div>
 
-	<?php echo wp_kses( ErrorRenderer::get_rendered_error( 'wc_tax_enabled_required_to_collect_taxes', true ), $html_list ); ?>
 	<?php echo wp_kses( ErrorRenderer::get_rendered_error( 'stripe_tax_shipping_zone_required', true ), $html_list ); ?>
+
+	<?php
+	// Display diagnostics banner whenever health checks detect issues.
+	$health_report = TaxHealthCheck::run( true );
+	if ( ! $health_report['is_healthy'] && isset( $health_report['status'] ) && 'connected_with_issues' === $health_report['status'] ) {
+		// Show the simple banner.
+		include STRIPE_TAX_FOR_WOOCOMMERCE_TEMPLATES_DIR . 'tax-diagnostics-notice.php';
+	}
+
+	echo '<div id="stripe_tax_for_woocommerce_diagnostics_details_container">';
+	if ( ! $health_report['is_healthy'] && isset( $health_report['status'] ) && 'disconnected' === $health_report['status'] && ! TaxHealthCheck::has_only_missing_restricted_key_issue( $health_report ) ) {
+		include STRIPE_TAX_FOR_WOOCOMMERCE_TEMPLATES_DIR . 'tax-diagnostics-details.php';
+	}
+	// Fallback for non-JS behavior.
+	$stfwc_run_diagnostics_nonce = isset( $_GET['nonce'] ) ? sanitize_text_field( wp_unslash( $_GET['nonce'] ) ) : '';
+	if ( '' !== $stfwc_run_diagnostics_nonce && wp_verify_nonce( $stfwc_run_diagnostics_nonce, 'stripe_tax_run_diagnostics' ) && ! TaxHealthCheck::has_only_missing_restricted_key_issue( $health_report ) ) {
+		include STRIPE_TAX_FOR_WOOCOMMERCE_TEMPLATES_DIR . 'tax-diagnostics-details.php';
+	}
+	echo '</div>';
+	?>
 
 	<div id="stripe_tax_for_woocommerce_unsaved_changes_notice" class="notice notice-warning inline stripe_tax_for_woocommerce_unsaved_notice">
 		<p><?php echo wp_kses( __( 'You have unsaved changes. Click "Save changes" at the bottom of the page to apply them.', 'stripe-tax-for-woocommerce' ), $html_list ); ?></p>
@@ -128,8 +149,6 @@ $stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Da
 	<div class="stripe_tax_for_woocommerce_step stripe_tax_for_woocommerce_step_1">
 
 		<h2><?php echo wp_kses( __( 'Step 1. Connect Stripe account', 'stripe-tax-for-woocommerce' ), $html_list ); ?></h2>
-		<h2 class="stripe_tax_for_woocommerce_button_authorize">
-		</h2>
 		<?php echo wp_kses( ErrorRenderer::get_rendered_error( 'notice_message' ), $html_list ); ?>
 		<table class="form-table stripe_tax_for_woocommerce_settings">
 			<tbody>
@@ -159,7 +178,7 @@ $stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Da
 			</tr>
 			<tr valign="top" class="">
 				<th scope="row"
-					class="titledesc"><?php echo wp_kses( __( 'Skip tax calculation on cart page', 'stripe-tax-for-woocommerce' ), $html_list ); ?></th>
+					class="titledesc"><?php echo wp_kses( __( 'Tax calculation on cart page', 'stripe-tax-for-woocommerce' ), $html_list ); ?></th>
 				<td class="forminp forminp-checkbox">
 					<fieldset>
 						<legend class="screen-reader-text">
@@ -172,9 +191,9 @@ $stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Da
 									id="stripe_tax_for_woocommerce_id_skip_cart_tax_calculation" type="checkbox" class=""
 									value="1"<?php checked( $stfwc_skip_cart_tax_calculation ); ?>
 							>
-							<?php echo wp_kses( __( 'Skip tax calculation on cart page', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
+							<?php echo wp_kses( __( 'Disable tax calculation on cart page', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
 						</label>
-						<p class="description"><?php echo wp_kses( __( 'When checked, tax will not be calculated on the cart page, no Stripe Tax API calls will be made on the cart page. Tax calculations will proceed normally on the checkout page.', 'stripe-tax-for-woocommerce' ), $html_list ); ?></p>
+						<p class="description"><?php echo wp_kses( __( 'When checked, tax will not be calculated on the cart page and no API calls will be made at cart level. Tax will still be calculated normally at checkout.', 'stripe-tax-for-woocommerce' ), $html_list ); ?></p>
 					</fieldset>
 				</td>
 			</tr>
@@ -182,16 +201,17 @@ $stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Da
 				<th scope="row">
 					<label for="stripe_tax_for_woocommerce_id_toggle_mode">
 						Mode
-						<span class="woocommerce-help-tip stfwc-help-tip js-mode-tip" data-tip-live="<?php echo esc_attr( $stfwc_tip_mode_live ); ?>" data-tip-sandbox="<?php echo esc_attr( $stfwc_tip_mode_sandbox ); ?>" data-tip="<?php echo esc_attr( Options::MODE_TEST === $stfwc_mode_type ? $stfwc_tip_mode_sandbox : $stfwc_tip_mode_live ); ?>"></span>
+						<span class="woocommerce-help-tip stfwc-help-tip stfwc-help-mode-tip js-mode-tip" data-tip-live="<?php echo esc_attr( $stfwc_tip_mode_live ); ?>" data-tip-sandbox="<?php echo esc_attr( $stfwc_tip_mode_sandbox ); ?>" data-tip="<?php echo esc_attr( Options::MODE_TEST === $stfwc_mode_type ? $stfwc_tip_mode_sandbox : $stfwc_tip_mode_live ); ?>"></span>
 					</label>
 				</th>
 				<td>
 					<label class="stripe_tax_for_woocommerce_switch">
-						<input id="stripe_tax_for_woocommerce_id_toggle_mode" type="checkbox" name="stripe_tax_for_woocommerce_mode" value="1" <?php checked( 1, $stfwc_mode_type ); ?> />
+						<input id="stripe_tax_for_woocommerce_id_toggle_mode" type="checkbox" name="stripe_tax_for_woocommerce_mode" value="1" aria-label="<?php echo esc_attr( $stfwc_mode_label ); ?>" data-label-live="<?php echo esc_attr( $stfwc_mode_label_live ); ?>" data-label-sandbox="<?php echo esc_attr( $stfwc_mode_label_test ); ?>" data-label-unsaved-live="<?php echo esc_attr( $stfwc_mode_unsaved_label_live ); ?>" data-label-unsaved-sandbox="<?php echo esc_attr( $stfwc_mode_unsaved_label_sandbox ); ?>" <?php checked( 1, $stfwc_mode_type ); ?> />
 						<span class="slider round"></span>
 						<span class="switch-text js-live-text"><?php echo wp_kses( __( 'Live', 'stripe-tax-for-woocommerce' ), $html_list ); ?></span>
 						<span class="switch-text js-sandbox-text"><?php echo wp_kses( __( 'Sandbox', 'stripe-tax-for-woocommerce' ), $html_list ); ?></span>
 					</label>
+					<p class="description js-mode-current-label"><?php echo esc_html( $stfwc_mode_label ); ?></p>
 				</td>
 			</tr>
 			<tr>
@@ -203,54 +223,56 @@ $stfwc_tip_secret_key   = __( 'Insert your restricted API key from the Stripe Da
 		
 			<tr valign="top" class="js-stripe_tax_for_woocommerce_test_mode" <?php echo ( Options::MODE_TEST !== $stfwc_mode_type ? 'style="display: none"' : '' ); ?>>
 				<th scope="row" class="titledesc"><label
-							for="stripe_tax_for_woocommerce_id_test_mode_secret_key"><?php echo wp_kses( __( 'Secret key (test mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
+							for="stripe_tax_for_woocommerce_id_test_mode_secret_key"><?php echo wp_kses( __( 'Restricted key (test mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
 						<span class="woocommerce-help-tip stfwc-help-tip" data-tip="<?php echo esc_attr( $stfwc_tip_secret_key ); ?>"></span>
 						</label>
 				</th>
 				<td class="forminp forminp-text">
-					<input name="stripe_tax_for_woocommerce_test_mode_secret_key"
-							id="stripe_tax_for_woocommerce_id_test_mode_secret_key"
-							class="js_stripe_tax_for_woocommerce_test_mode js_stripe_tax_for_woocommerce_sec_key"
-							type="password" autocomplete="off"
-							value="<?php echo esc_attr( $stfwc_test_key ); ?>"
-							placeholder="<?php echo wp_kses( __( 'Secret key (test mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>">
-					
+					<div class="stripe_tax_for_woocommerce_key_field_row">
+						<input name="stripe_tax_for_woocommerce_test_mode_secret_key"
+								id="stripe_tax_for_woocommerce_id_test_mode_secret_key"
+								class="js_stripe_tax_for_woocommerce_test_mode js_stripe_tax_for_woocommerce_sec_key"
+								type="password" autocomplete="off"
+								value="<?php echo esc_attr( $stfwc_test_key ); ?>"
+								placeholder="<?php echo wp_kses( __( 'Restricted key (test mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>">
+						<input autocomplete="off" type="button" <?php echo ( '' === $stfwc_test_key ? 'disabled="disabled"' : '' ); ?> 
+								id="stripe_tax_for_woocommerce_id_btn_test_connection_test_key"
+								name="stripe_tax_for_woocommerce_button_test_connection_test_key" 
+								class="button action js_stripe_tax_for_woocommerce_button_test_connection"
+								data-mode="test"
+								value="<?php echo esc_attr( __( 'Test connection', 'stripe-tax-for-woocommerce' ) ); ?>">
+					</div>
 					<input autocomplete="off" type="hidden"
 							name="stripe_tax_for_woocommerce_nonce_test_connection_test_key"
 							value="<?php echo esc_attr( wp_create_nonce( 'stripe_tax_for_woocommerce_test_connection_live_key' ) ); ?>">
-
-					<input autocomplete="off" type="button" <?php echo ( '' === $stfwc_test_key ? 'disabled="disabled"' : '' ); ?> 
-							id="stripe_tax_for_woocommerce_id_btn_test_connection_test_key"
-							name="stripe_tax_for_woocommerce_button_test_connection_test_key" 
-							class="button action js_stripe_tax_for_woocommerce_button_test_connection"
-							data-mode="test"
-							value="<?php echo esc_attr( __( 'Test connection', 'stripe-tax-for-woocommerce' ) ); ?>">
 				</td>
 			</tr>
 
 			<tr valign="top" class="js-stripe_tax_for_woocommerce_live_mode" 
 			<?php echo ( Options::MODE_TEST === $stfwc_mode_type ? 'style="display: none"' : '' ); ?>>
 				<th scope="row" class="titledesc"><label
-							for="stripe_tax_for_woocommerce_id_live_mode_secret_key"><?php echo wp_kses( __( 'Secret key (live mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
+							for="stripe_tax_for_woocommerce_id_live_mode_secret_key"><?php echo wp_kses( __( 'Restricted key (live mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
 						<span class="woocommerce-help-tip stfwc-help-tip" data-tip="<?php echo esc_attr( $stfwc_tip_secret_key ); ?>"></span>
 						</label>
 				</th>
 				<td class="forminp forminp-text">
-					<input name="stripe_tax_for_woocommerce_live_mode_secret_key"
-							id="stripe_tax_for_woocommerce_id_live_mode_secret_key"
-							class="js_stripe_tax_for_woocommerce_live_mode js_stripe_tax_for_woocommerce_sec_key"
-							type="password" autocomplete="off"
-							value="<?php echo esc_attr( $stfwc_live_key ); ?>"
-							placeholder="<?php echo wp_kses( __( 'Secret key (live mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>">
+					<div class="stripe_tax_for_woocommerce_key_field_row">
+						<input name="stripe_tax_for_woocommerce_live_mode_secret_key"
+								id="stripe_tax_for_woocommerce_id_live_mode_secret_key"
+								class="js_stripe_tax_for_woocommerce_live_mode js_stripe_tax_for_woocommerce_sec_key"
+								type="password" autocomplete="off"
+								value="<?php echo esc_attr( $stfwc_live_key ); ?>"
+								placeholder="<?php echo wp_kses( __( 'Restricted key (live mode)', 'stripe-tax-for-woocommerce' ), $html_list ); ?>">
+						<input autocomplete="off" type="button" <?php echo ( '' === $stfwc_live_key ? 'disabled="disabled"' : '' ); ?>
+								id="stripe_tax_for_woocommerce_id_btn_test_connection_live_key"
+								name="stripe_tax_for_woocommerce_button_test_connection_live_key" 
+								class="button action js_stripe_tax_for_woocommerce_button_test_connection"
+								data-mode="live"
+								value="<?php echo esc_attr( __( 'Test connection', 'stripe-tax-for-woocommerce' ) ); ?>">
+					</div>
 					<input autocomplete="off" type="hidden"
 							name="stripe_tax_for_woocommerce_nonce_test_connection_live_key"
 							value="<?php echo esc_attr( wp_create_nonce( 'stripe_tax_for_woocommerce_test_connection_live_key' ) ); ?>">
-					<input autocomplete="off" type="button" <?php echo ( '' === $stfwc_live_key ? 'disabled="disabled"' : '' ); ?>
-							id="stripe_tax_for_woocommerce_id_btn_test_connection_live_key"
-							name="stripe_tax_for_woocommerce_button_test_connection_live_key" 
-							class="button action js_stripe_tax_for_woocommerce_button_test_connection"
-							data-mode="live"
-							value="<?php echo esc_attr( __( 'Test connection', 'stripe-tax-for-woocommerce' ) ); ?>">
 				</td>
 			</tr>
 
@@ -297,7 +319,7 @@ if ( $stfwc_key ) :
 						'stripe_tax_for_woocommerce_id_live_mode_tax_code'
 					);
 				?>
-					<p class="description"><?php echo wp_kses( __( 'Define the default tax code used to calculate tax on products that don\'t have an individual tax code assigned.', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
+					<p class="description"><?php echo wp_kses( __( 'Set the default tax code applied to new products. You can override this setting on individual product pages.', 'stripe-tax-for-woocommerce' ), $html_list ); ?>
 						<a href="https://stripe.com/docs/tax/tax-codes"
 							target="_blank"><?php echo wp_kses( __( 'Learn more', 'stripe-tax-for-woocommerce' ), $html_list ); ?></a></p>
 				</td>

@@ -40,6 +40,7 @@ use WP_REST_Response;
 use Stripe\StripeTaxForWooCommerce\WooCommerce\StripeTaxTaxRateMemRepo;
 use Stripe\StripeTaxForWooCommerce\WordPress\StringTaxRateIdFixerScheduledAction;
 use Stripe\StripeTaxForWooCommerce\WordPress\StripeTax_Plugin;
+use Stripe\StripeTaxForWooCommerce\Stripe\Tax_Calculation\Calculator;
 use Stripe\StripeTaxForWooCommerce\Stripe\Tax_Calculation\Data;
 
 /**
@@ -159,6 +160,7 @@ class Hooks {
 		$localize_script = array(
 			'ajax_url'                                    => admin_url( 'admin-ajax.php' ),
 			'current_section_url'                         => admin_url( 'admin.php?page=wc-settings&tab=stripe_tax_for_woocommerce&section=' . $current_section ),
+			'run_diagnostics_nonce'                       => wp_create_nonce( 'stripe_tax_run_diagnostics' ),
 			'city_label'                                  => __( 'City', 'stripe-tax-for-woocommerce' ),
 			'city_is_district_label'                      => __( 'District', 'stripe-tax-for-woocommerce' ),
 			'city_is_district_countries'                  => array_keys( StripeTaxPluginHelper::get_city_is_district_countries() ),
@@ -187,6 +189,8 @@ class Hooks {
 			'tax_registrations_localize_no_sales_description' => __( 'You don’t need to add a registration in %s because there’s no sales tax in this state.', 'stripe-tax-for-woocommerce' ),
 			'tax_ids_html'                                => CalculateTax::get_tax_ids_admin_html(),
 			'disconnect_from_stripe_message_confirmation' => __( 'Are you sure you want to disconnect Stripe Tax plugin from Stripe Account?', 'stripe-tax-for-woocommerce' ),
+			'diagnostics_failed_message'                  => __( 'Diagnostics failed. Refresh page and try again.', 'stripe-tax-for-woocommerce' ),
+			'live_mode_enabled'                           => Options::is_live_mode_enabled(),
 		);
 
 		if ( self::is_stripe_tab_selected() ) {
@@ -202,8 +206,9 @@ class Hooks {
 			} catch ( \Throwable $e ) {
 				$stripe_tax_error_message = 'Error fetching tax registrations: ' . $e->getMessage();
 			}
-			wp_localize_script( 'stripe_tax_for_woocommerce_admin', 'stripe_tax_for_woocommerce', $localize_script );
 		}
+
+		wp_localize_script( 'stripe_tax_for_woocommerce_admin', 'stripe_tax_for_woocommerce', $localize_script );
 	}
 
 	/**
@@ -251,6 +256,15 @@ class Hooks {
 			array(
 				AdminAjax::class,
 				'force_refresh_tax_registrations',
+			),
+			10,
+			0
+		);
+		add_action(
+			'wp_ajax_stripe_tax_for_woocommerce_run_diagnostics',
+			array(
+				AdminAjax::class,
+				'run_diagnostics',
 			),
 			10,
 			0
@@ -338,20 +352,62 @@ class Hooks {
 	public static function action_woocommerce_product_options_tax() {
 		global $product_object;
 		try {
-			$tax_settings      = new TaxSettings( Options::get_current_mode_key() );
-			$stripe_wc_product = new ExtendedProduct( $product_object->get_id() );
-			$default_tax_code  = Options::get_tax_code();
-			$tax_codes         = ( new TaxCodeList( Options::get_current_mode_key() ) )->get_as_key_value_formatted();
+			$tax_settings       = new TaxSettings( Options::get_current_mode_key() );
+			$stripe_wc_product  = new ExtendedProduct( $product_object->get_id() );
+			$default_tax_code   = Options::get_tax_code();
+			$tax_codes          = ( new TaxCodeList( Options::get_current_mode_key() ) )->get_as_key_value_formatted();
+			$stripe_tax_tab_url = admin_url( 'admin.php?page=wc-settings&tab=stripe_tax_for_woocommerce' );
+			$help_tip           = function_exists( 'wc_help_tip' )
+				? wc_help_tip( __( 'Choose a tax code for this product.', 'stripe-tax-for-woocommerce' ) )
+				: '';
+
+			ob_start();
 			woocommerce_wp_select(
 				array(
 					'id'          => '_stripe_tax_for_woocommerce_tax_code',
 					'value'       => isset( $stripe_wc_product->get_extended_product()['tax_code'] ) ? $stripe_wc_product->get_extended_product()['tax_code'] : 'stfwc_inherit',
 					'label'       => __( 'Stripe Tax - Product tax code', 'stripe-tax-for-woocommerce' ),
 					'options'     => array_merge( array( 'stfwc_inherit' => __( 'Default' ) . ' (' . $default_tax_code . ' - ' . TaxCodeList::format_single( $default_tax_code, Options::get_current_mode_key() ) . ')' ), $tax_codes ),
-					'desc_tip'    => 'true',
-					'description' => __( 'Choose a stripe tax code for this product.', 'stripe-tax-for-woocommerce' ),
+					'desc_tip'    => false,
+					'description' => sprintf(
+						/* translators: %s: Stripe Tax settings URL. */
+						__( 'Pre-filled with your default tax code from the <a href="%s">Stripe Tax tab</a>. Change it here to override the default for this product.', 'stripe-tax-for-woocommerce' ),
+						$stripe_tax_tab_url
+					),
 				)
 			);
+			$product_tax_code_field_html = ob_get_clean();
+			$product_tax_code_field_html = str_replace( 'class="description"', 'class="stfwc-product-tax-code-note"', $product_tax_code_field_html );
+			if ( '' !== $help_tip ) {
+				$product_tax_code_field_html = str_replace( '</select>', '</select>' . $help_tip, $product_tax_code_field_html );
+			}
+			$allowed_html = array_merge(
+				wp_kses_allowed_html( 'post' ),
+				array(
+					'select'   => array(
+						'id'       => true,
+						'name'     => true,
+						'class'    => true,
+						'style'    => true,
+						'disabled' => true,
+					),
+					'optgroup' => array(
+						'label' => true,
+					),
+					'option'   => array(
+						'value'    => true,
+						'selected' => true,
+						'disabled' => true,
+					),
+					'span'     => array(
+						'class'      => true,
+						'data-tip'   => true,
+						'tabindex'   => true,
+						'aria-label' => true,
+					),
+				)
+			);
+			echo wp_kses( $product_tax_code_field_html, $allowed_html );
 		} catch ( \Throwable $e ) {
 			ErrorRenderer::set_error_object( 'product_tax_code_retrieve_error', esc_html( 'Stripe Tax: ' . $e->getMessage() ), 'error' );
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -554,6 +610,10 @@ class Hooks {
 			10,
 			1
 		);
+
+		add_action( 'wp_enqueue_scripts', array( static::class, 'action_enqueue_zero_rated_checkout_script' ), 10, 0 );
+		add_action( 'wp_ajax_stripe_tax_zero_rated_line_status', array( static::class, 'action_ajax_zero_rated_line_status' ), 10, 0 );
+		add_action( 'wp_ajax_nopriv_stripe_tax_zero_rated_line_status', array( static::class, 'action_ajax_zero_rated_line_status' ), 10, 0 );
 	}
 
 	/**
@@ -597,6 +657,16 @@ class Hooks {
 			'__return_false',
 			20,
 			0
+		);
+
+		add_filter(
+			'woocommerce_cart_tax_totals',
+			array(
+				static::class,
+				'filter_cart_tax_totals_zero_rated',
+			),
+			20,
+			2
 		);
 
 		if ( Options::is_skip_cart_tax_calculation() ) {
@@ -689,53 +759,57 @@ class Hooks {
 			2
 		);
 
-		add_filter(
-			'woocommerce_get_sections_tax',
-			function ( $classes ) {
-				return array( '' => $classes[''] );
-			},
-			10,
-			1
-		);
+		// These filters hide/override native WooCommerce tax options and must only apply
+		// while Stripe Tax calculation and collection ("Enable Stripe Tax") is actually enabled.
+		if ( Options::is_live_mode_enabled() ) {
+			add_filter(
+				'woocommerce_get_sections_tax',
+				function ( $classes ) {
+					return array( '' => $classes[''] );
+				},
+				10,
+				1
+			);
 
-		add_filter(
-			'option_woocommerce_tax_based_on',
-			array(
-				static::class,
-				'action_option_woocommerce_tax_based_on',
-			),
-			10,
-			1
-		);
+			add_filter(
+				'option_woocommerce_tax_based_on',
+				array(
+					static::class,
+					'action_option_woocommerce_tax_based_on',
+				),
+				10,
+				1
+			);
 
-		add_filter(
-			'option_woocommerce_tax_round_at_subtotal',
-			function () {
-				return 'no';
-			},
-			10,
-			0
-		);
+			add_filter(
+				'option_woocommerce_tax_round_at_subtotal',
+				function () {
+					return 'no';
+				},
+				10,
+				0
+			);
 
-		add_filter(
-			'woocommerce_tax_settings',
-			function ( $settings ) {
-				return array_filter(
-					$settings,
-					function ( $setting ) {
-						if ( array_key_exists( 'id', $setting ) && in_array( $setting['id'], array( 'woocommerce_tax_display_shop', 'woocommerce_tax_display_cart' ), true ) ) {
-							return false;
+			add_filter(
+				'woocommerce_tax_settings',
+				function ( $settings ) {
+					return array_filter(
+						$settings,
+						function ( $setting ) {
+							if ( array_key_exists( 'id', $setting ) && in_array( $setting['id'], array( 'woocommerce_tax_display_shop', 'woocommerce_tax_display_cart' ), true ) ) {
+								return false;
+							}
+
+							if ( array_key_exists( 'type', $setting ) && 'conflict_error' === $setting['type'] ) {
+								return false;
+							}
+
+							return true;
 						}
-
-						if ( array_key_exists( 'type', $setting ) && 'conflict_error' === $setting['type'] ) {
-							return false;
-						}
-
-						return true;
-					}
-				);
-			}
-		);
+					);
+				}
+			);
+		}
 	}
 
 	/**
@@ -795,6 +869,121 @@ class Hooks {
 		$placeholder->formatted_amount = __( 'Calculated at checkout', 'stripe-tax-for-woocommerce' );
 
 		return array( 'stripe_tax_placeholder' => $placeholder );
+	}
+
+	/**
+	 * Adds a zero-rated tax row when Stripe confirms a valid zero-tax scenario.
+	 *
+	 * @param array    $tax_totals Tax totals.
+	 * @param \WC_Cart $cart Cart object.
+	 *
+	 * @return array
+	 */
+	public static function filter_cart_tax_totals_zero_rated( $tax_totals, $cart ) {
+		if ( ! empty( $tax_totals ) || ! $cart instanceof \WC_Cart ) {
+			return $tax_totals;
+		}
+
+		if ( ! self::should_show_zero_rated_tax_line( $cart ) ) {
+			return $tax_totals;
+		}
+
+		$zero_rated                   = new \stdClass();
+		$zero_rated->tax_rate_id      = 0;
+		$zero_rated->is_compound      = false;
+		$zero_rated->label            = __( 'Tax (zero-rated)', 'stripe-tax-for-woocommerce' );
+		$zero_rated->amount           = 0;
+		$zero_rated->formatted_amount = wc_price( 0 );
+
+		return array( 'stripe_tax_zero_rated' => $zero_rated );
+	}
+
+	/**
+	 * Whether we should display the fallback zero-rated tax row.
+	 *
+	 * @param \WC_Cart $cart Cart object.
+	 */
+	private static function should_show_zero_rated_tax_line( \WC_Cart $cart ): bool {
+		if ( (float) $cart->get_total_tax() > 0 || empty( $cart->get_cart() ) ) {
+			return false;
+		}
+
+		if ( ! empty( Calculator::$calculations['cart']['result'] ) ) {
+			$result = Calculator::$calculations['cart']['result'];
+
+			return ! empty( $result->show_zero_rated_tax_line );
+		}
+
+		return self::get_zero_rated_tax_line_status_from_session();
+	}
+
+	/**
+	 * Read the current zero-rated visibility flag from WC session.
+	 */
+	private static function get_zero_rated_tax_line_status_from_session(): bool {
+		if ( ! function_exists( 'WC' ) || ! WC()->session ) {
+			return false;
+		}
+
+		return (bool) WC()->session->get( 'stripe_tax_show_zero_rated_tax_line', false );
+	}
+
+	/**
+	 * AJAX status endpoint consumed by checkout blocks script.
+	 */
+	public static function action_ajax_zero_rated_line_status(): void {
+		$show = self::get_zero_rated_tax_line_status_from_session();
+
+		if ( function_exists( 'WC' ) && WC()->cart instanceof \WC_Cart ) {
+			$show = self::should_show_zero_rated_tax_line( WC()->cart );
+		}
+
+		wp_send_json_success(
+			array(
+				'show' => $show,
+			)
+		);
+	}
+
+	/**
+	 * Enqueue checkout script that renders a zero-rated line for block checkout.
+	 */
+	public static function action_enqueue_zero_rated_checkout_script(): void {
+		if ( is_admin() || ( ! is_checkout() && ! is_cart() ) ) {
+			return;
+		}
+
+		$handle           = 'stripe-tax-zero-rated-checkout';
+		$tax_or_vat_label = __( 'Tax', 'stripe-tax-for-woocommerce' );
+
+		if ( function_exists( 'WC' ) && WC()->countries ) {
+			$tax_or_vat_label = WC()->countries->tax_or_vat();
+		}
+
+		wp_enqueue_script(
+			$handle,
+			STRIPE_TAX_FOR_WOOCOMMERCE_ASSETS_JS_URL . 'stripe-tax-zero-rated-checkout.js',
+			array(),
+			'1.0.12',
+			true
+		);
+
+		wp_add_inline_script(
+			$handle,
+			sprintf(
+				'window.stripeTaxZeroRatedLine=%s;',
+				wp_json_encode(
+					array(
+						'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+						'action'   => 'stripe_tax_zero_rated_line_status',
+						'label'    => __( 'Tax (zero-rated)', 'stripe-tax-for-woocommerce' ),
+						'taxLabel' => $tax_or_vat_label,
+						'amount'   => html_entity_decode( wp_strip_all_tags( wc_price( 0 ) ), ENT_QUOTES, get_bloginfo( 'charset' ) ),
+					)
+				)
+			),
+			'before'
+		);
 	}
 	// phpcs:enable Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 
@@ -1683,7 +1872,7 @@ class Hooks {
 		if ( class_exists( __NAMESPACE__ . '\\Hook_Handlers' ) ) {
 			$handlers_class = __NAMESPACE__ . '\\Hook_Handlers';
 		}
-		if ( $handlers_class && ! $handlers_class::is_enabled() ) {
+		if ( $handlers_class && $handlers_class::is_current_request_failed() ) {
 			$exception_class = '\Automattic\WooCommerce\StoreApi\Exceptions\RouteException';
 
 			if ( class_exists( $exception_class ) ) {
